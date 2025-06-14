@@ -22,74 +22,62 @@ where
 
     let mut last_focused: Option<String> = None;
 
-    // Connect to swayipc and subscribe to window events
-    let mut connection = Connection::new().map_err(|e| {
-        FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
-    })?;
+    // Outer loop for connection management and reconnection
+    loop {
+        // Connect to swayipc and subscribe to window events
+        let connection = Connection::new().map_err(|e| {
+            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
+        })?;
 
-    let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
-        FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
-    })?;
+        let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
+            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
+        })?;
 
-    // Process events as they arrive
-    for event in event_iterator {
-        match event {
-            Ok(Event::Window(window_event)) => {
-                // Only handle focus events
-                if matches!(window_event.change, WindowChange::Focus) {
-                    match get_focused_window_from_event(&window_event) {
-                        Ok(window) => {
-                            // Check if focus actually changed
-                            let current_title = window.window_title.clone().unwrap_or_default();
-                            if last_focused.as_ref() != Some(&current_title) {
-                                last_focused = Some(current_title);
+        // Process events as they arrive
+        let mut should_reconnect = false;
+        for event in event_iterator {
+            match event {
+                Ok(Event::Window(window_event)) => {
+                    // Only handle focus events
+                    if matches!(window_event.change, WindowChange::Focus) {
+                        match get_focused_window_from_event(&window_event) {
+                            Ok(window) => {
+                                // Check if focus actually changed
+                                let current_title = window.window_title.clone().unwrap_or_default();
+                                if last_focused.as_ref() != Some(&current_title) {
+                                    last_focused = Some(current_title);
 
-                                if let Err(e) = on_focus(window) {
-                                    eprintln!("Focus event handler failed: {}", e);
-                                    // Continue processing instead of propagating the error
+                                    if let Err(e) = on_focus(window) {
+                                        eprintln!("Focus event handler failed: {}", e);
+                                        // Continue processing instead of propagating the error
+                                    }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to get focused window from event: {}", e);
+                            Err(e) => {
+                                eprintln!("Failed to get focused window from event: {}", e);
+                            }
                         }
                     }
                 }
-            }
-            Ok(_) => {
-                // Ignore other event types
-            }
-            Err(e) => {
-                eprintln!("Error receiving window event: {}", e);
-                // Try to reconnect on error
-                match Connection::new() {
-                    Ok(new_conn) => {
-                        connection = new_conn;
-                        match connection.subscribe([EventType::Window]) {
-                            Ok(_new_iterator) => {
-                                // Continue with new iterator - this requires restructuring the loop
-                                eprintln!("Reconnected to sway IPC");
-                                break;
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to resubscribe after reconnection: {}", e);
-                                return Err(FerrousFocusError::Platform(format!(
-                                    "Lost connection to sway IPC: {}",
-                                    e
-                                )));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to reconnect to sway IPC: {}", e);
-                        return Err(FerrousFocusError::Platform(format!(
-                            "Lost connection to sway IPC: {}",
-                            e
-                        )));
-                    }
+                Ok(_) => {
+                    // Ignore other event types
+                }
+                Err(e) => {
+                    eprintln!("Error receiving window event: {}", e);
+                    eprintln!("Attempting to reconnect to sway IPC...");
+                    should_reconnect = true;
+                    break;
                 }
             }
         }
+
+        // If we need to reconnect, continue the outer loop to recreate connection and iterator
+        if should_reconnect {
+            continue;
+        }
+
+        // If we reach here without needing to reconnect, we're done
+        break;
     }
 
     Ok(())
@@ -114,79 +102,72 @@ where
 
     let mut last_focused: Option<String> = None;
 
-    // Connect to swayipc and subscribe to window events
-    let mut connection = Connection::new().map_err(|e| {
-        FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
-    })?;
-
-    let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
-        FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
-    })?;
-
-    // Process events as they arrive
-    for event in event_iterator {
-        // Check stop signal before processing each event
+    // Outer loop for connection management and reconnection
+    loop {
+        // Check stop signal before attempting connection
         if stop_signal.load(Ordering::Relaxed) {
             break;
         }
 
-        match event {
-            Ok(Event::Window(window_event)) => {
-                // Only handle focus events
-                if matches!(window_event.change, WindowChange::Focus) {
-                    match get_focused_window_from_event(&window_event) {
-                        Ok(window) => {
-                            // Check if focus actually changed
-                            let current_title = window.window_title.clone().unwrap_or_default();
-                            if last_focused.as_ref() != Some(&current_title) {
-                                last_focused = Some(current_title);
+        // Connect to swayipc and subscribe to window events
+        let connection = Connection::new().map_err(|e| {
+            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
+        })?;
 
-                                if let Err(e) = on_focus(window) {
-                                    eprintln!("Focus event handler failed: {}", e);
-                                    // Continue processing instead of propagating the error
+        let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
+            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
+        })?;
+
+        // Process events as they arrive
+        let mut should_reconnect = false;
+        for event in event_iterator {
+            // Check stop signal before processing each event
+            if stop_signal.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            match event {
+                Ok(Event::Window(window_event)) => {
+                    // Only handle focus events
+                    if matches!(window_event.change, WindowChange::Focus) {
+                        match get_focused_window_from_event(&window_event) {
+                            Ok(window) => {
+                                // Check if focus actually changed
+                                let current_title = window.window_title.clone().unwrap_or_default();
+                                if last_focused.as_ref() != Some(&current_title) {
+                                    last_focused = Some(current_title);
+
+                                    if let Err(e) = on_focus(window) {
+                                        eprintln!("Focus event handler failed: {}", e);
+                                        // Continue processing instead of propagating the error
+                                    }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to get focused window from event: {}", e);
+                            Err(e) => {
+                                eprintln!("Failed to get focused window from event: {}", e);
+                            }
                         }
                     }
                 }
-            }
-            Ok(_) => {
-                // Ignore other event types
-            }
-            Err(e) => {
-                eprintln!("Error receiving window event: {}", e);
-                // Try to reconnect on error
-                match Connection::new() {
-                    Ok(new_conn) => {
-                        connection = new_conn;
-                        match connection.subscribe([EventType::Window]) {
-                            Ok(_new_iterator) => {
-                                // Continue with new iterator - this requires restructuring the loop
-                                eprintln!("Reconnected to sway IPC");
-                                break;
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to resubscribe after reconnection: {}", e);
-                                return Err(FerrousFocusError::Platform(format!(
-                                    "Lost connection to sway IPC: {}",
-                                    e
-                                )));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to reconnect to sway IPC: {}", e);
-                        return Err(FerrousFocusError::Platform(format!(
-                            "Lost connection to sway IPC: {}",
-                            e
-                        )));
-                    }
+                Ok(_) => {
+                    // Ignore other event types
+                }
+                Err(e) => {
+                    eprintln!("Error receiving window event: {}", e);
+                    eprintln!("Attempting to reconnect to sway IPC...");
+                    should_reconnect = true;
+                    break;
                 }
             }
         }
+
+        // If we need to reconnect, continue the outer loop to recreate connection and iterator
+        if should_reconnect {
+            continue;
+        }
+
+        // If we reach here without needing to reconnect, we're done
+        break;
     }
 
     Ok(())

@@ -71,7 +71,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Keep the script running
-if [ "$1" = "--daemon" ]; then
+if [ "${1:-}" = "--daemon" ]; then
     # Run in background
     echo "Running in daemon mode"
     wait

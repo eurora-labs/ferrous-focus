@@ -1,7 +1,7 @@
 #!/bin/bash
 # Start headless X11 display for testing
 
-set -e
+set -euo pipefail
 
 DISPLAY_NUM=${1:-99}
 DISPLAY=":$DISPLAY_NUM"
@@ -9,7 +9,7 @@ DISPLAY=":$DISPLAY_NUM"
 echo "Starting headless X11 display $DISPLAY"
 
 # Kill any existing Xvfb on this display
-pkill -f "Xvfb $DISPLAY" || true
+pkill -fx "Xvfb $DISPLAY" 2>/dev/null || true
 
 # Start Xvfb
 Xvfb $DISPLAY -screen 0 1024x768x24 -ac +extension GLX +render -noreset &

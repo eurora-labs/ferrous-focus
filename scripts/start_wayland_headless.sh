@@ -1,12 +1,14 @@
 #!/bin/bash
 # Start headless Wayland display for testing
 
-set -e
+set -euo pipefail
 
 echo "Starting headless Wayland display with Sway"
 
-# Kill any existing sway processes
-pkill sway || true
+# Check if our specific Wayland display is already in use
+if [ -n "${WAYLAND_DISPLAY:-}" ] && [ "$WAYLAND_DISPLAY" = "wayland-test" ]; then
+    echo "Warning: WAYLAND_DISPLAY is already set to wayland-test"
+fi
 
 # Create a minimal sway config for headless mode
 SWAY_CONFIG=$(mktemp)
@@ -33,9 +35,19 @@ export WLR_BACKENDS=headless
 export WLR_LIBINPUT_NO_DEVICES=1
 export WAYLAND_DISPLAY=wayland-test
 
+# Check if socket already exists and clean it up
+WAYLAND_SOCKET_PATH="${XDG_RUNTIME_DIR:-/tmp}/wayland-test"
+if [ -S "$WAYLAND_SOCKET_PATH" ]; then
+    echo "Warning: Wayland socket $WAYLAND_SOCKET_PATH already exists, removing it"
+    rm -f "$WAYLAND_SOCKET_PATH"
+fi
+
 # Start sway in headless mode
 sway --config "$SWAY_CONFIG" --unsupported-gpu &
 SWAY_PID=$!
+
+# Store PID for potential external cleanup
+echo "$SWAY_PID" > "${XDG_RUNTIME_DIR:-/tmp}/sway-headless.pid"
 
 # Wait for sway to start
 sleep 3
@@ -51,6 +63,7 @@ cleanup() {
     kill $SWAY_PID 2>/dev/null || true
     wait $SWAY_PID 2>/dev/null || true
     rm -f "$SWAY_CONFIG"
+    rm -f "${XDG_RUNTIME_DIR:-/tmp}/sway-headless.pid"
     echo "Cleanup complete"
 }
 

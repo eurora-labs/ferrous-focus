@@ -5,7 +5,7 @@
 
 mod util;
 
-use ferrous_focus::{FerrousFocusResult, FocusedWindow, track_focus};
+use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow};
 use serial_test::serial;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -40,7 +40,7 @@ fn test_spawn_window_helper() {
     // Test spawning a basic window
     let child = spawn_test_window("Test Window Basic");
     match child {
-        Ok(mut child) => {
+        Ok(child) => {
             println!("Successfully spawned test window");
 
             // Let the window exist for a moment
@@ -78,8 +78,9 @@ fn test_basic_focus_tracking() {
     let focus_events_clone = focus_events.clone();
 
     // Spawn the focus tracker in a separate thread with a timeout
-    let tracker_handle = std::thread::spawn(move || {
-        let result = track_focus(move |window: FocusedWindow| -> FerrousFocusResult<()> {
+    let _tracker_handle = std::thread::spawn(move || {
+        let tracker = FocusTracker::new();
+        let result = tracker.track_focus(move |window: FocusedWindow| -> FerrousFocusResult<()> {
             println!("Focus event: {:?}", window);
             if let Ok(mut events) = focus_events_clone.lock() {
                 events.push(window);
@@ -127,7 +128,7 @@ fn test_wayland_detection() {
     // Test the actual detection logic from our utils
     #[cfg(target_os = "linux")]
     {
-        use ferrous_focus::platform::utils::wayland_detect;
+        use ferrous_focus::utils::wayland_detect;
         let detected_wayland = wayland_detect();
         println!("Detected Wayland: {}", detected_wayland);
     }
@@ -189,13 +190,13 @@ fn test_linux_backend_selection() {
     }
 
     // Test that we can create the Linux focus tracker
-    use ferrous_focus::platform::impl_focus_tracker::ImplFocusTracker;
+    use ferrous_focus::FocusTracker;
 
-    let tracker = ImplFocusTracker::new();
+    let tracker = FocusTracker::new();
     println!("Successfully created Linux focus tracker: {:?}", tracker);
 
     // Test backend detection
-    use ferrous_focus::platform::utils::wayland_detect;
+    use ferrous_focus::utils::wayland_detect;
     let is_wayland = wayland_detect();
     println!(
         "Detected backend - Wayland: {}, X11: {}",

@@ -30,9 +30,9 @@ where
         root,
         &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
     )
-    .map_err(|e| FerrousFocusError::Platform(e.to_string()));
+    .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
     conn.flush()
-        .map_err(|e| FerrousFocusError::Platform(e.to_string()));
+        .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
 
     // Track the currently focused window to monitor its title changes
     let mut current_focused_window: Option<u32> = None;

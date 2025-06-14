@@ -2,10 +2,10 @@ use super::{utils::wayland_detect, wayland_focus_tracker, xorg_focus_tracker};
 use crate::{FerrousFocusResult, FocusedWindow};
 
 #[derive(Debug, Clone)]
-pub(crate) struct ImplFocusTracker {}
+pub struct ImplFocusTracker {}
 
 impl ImplFocusTracker {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }

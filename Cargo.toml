@@ -1,0 +1,29 @@
+[package]
+name = "ferrous-focus"
+version = "0.1.0"
+edition = "2024"
+authors = ["Europa Labs <contact@eurora-labs.com>"]
+license = "Apache-2.0"
+description = "Cross-platform focus tracker for Linux (X11), macOS and Windows"
+homepage = "https://github.com/eurora-labs/ferrous-focus"
+repository = "https://github.com/eurora-labs/ferrous-focus.git"
+keywords = [
+    "focus",
+    "focus-tracker",
+    "window-focus-tracker",
+    "window-focus",
+    "monitor",
+    "desktop",
+    "window",
+    "application",
+    "window-manager",
+]
+
+[workspace]
+members = ["."]
+resolver = "2"
+
+[dependencies]
+thiserror = "2.0.12"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"

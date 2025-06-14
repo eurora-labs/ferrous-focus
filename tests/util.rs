@@ -73,6 +73,9 @@ pub fn focus_window(child: &mut Child) -> Result<(), Box<dyn std::error::Error>>
     {
         focus_window_macos(child)
     }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    compile_error!("focus_window is not implemented for this platform");
 }
 
 #[cfg(target_os = "linux")]

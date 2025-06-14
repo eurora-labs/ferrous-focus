@@ -1,4 +1,5 @@
 mod error;
+mod window;
 
 #[cfg(target_os = "macos")]
 #[path = "macos/mod.rs"]
@@ -13,3 +14,4 @@ mod platform;
 mod platform;
 
 pub use error::{FerrousFocusError, FerrousFocusResult};
+pub use window::{FocusedWindow, IconData};

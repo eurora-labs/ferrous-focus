@@ -9,6 +9,15 @@ pub enum FerrousFocusError {
 
     #[error("StdSyncPoisonError {0}")]
     StdSyncPoisonError(String),
+
+    #[error("Unsupported")]
+    Unsupported,
+
+    #[error("Permission denied")]
+    PermissionDenied,
+
+    #[error("Platform error: {0}")]
+    Platform(String),
 }
 
 impl FerrousFocusError {

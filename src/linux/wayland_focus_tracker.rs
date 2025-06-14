@@ -44,10 +44,7 @@ where
                                 if last_focused.as_ref() != Some(&current_title) {
                                     last_focused = Some(current_title);
 
-                                    if let Err(e) = on_focus(window) {
-                                        eprintln!("Focus event handler failed: {}", e);
-                                        // Continue processing instead of propagating the error
-                                    }
+                                    on_focus(window)?;
                                 }
                             }
                             Err(e) => {
@@ -131,10 +128,7 @@ where
                                 if last_focused.as_ref() != Some(&current_title) {
                                     last_focused = Some(current_title);
 
-                                    if let Err(e) = on_focus(window) {
-                                        eprintln!("Focus event handler failed: {}", e);
-                                        // Continue processing instead of propagating the error
-                                    }
+                                    on_focus(window)?;
                                 }
                             }
                             Err(e) => {

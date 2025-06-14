@@ -108,16 +108,23 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
             }
         }
     }
-
     // Fallback: use xdotool if available
-    if Command::new("xdotool").arg("--version").output().is_ok() {
-        Command::new("xdotool")
-            .args(&["search", "--pid", &pid.to_string(), "windowactivate"])
+    if Command::new("xdotool").arg("--version").status()?.success() {
+        let ids = Command::new("xdotool")
+            .args(&["search", "--pid", &pid.to_string()])
             .output()?;
-
-        return Ok(());
+        if !ids.status.success() {
+            return Err("xdotool search failed".into());
+        }
+        if let Some(id) = String::from_utf8_lossy(&ids.stdout).lines().next() {
+            let status = Command::new("xdotool")
+                .args(&["windowactivate", id])
+                .status()?;
+            if status.success() {
+                return Ok(());
+            }
+        }
     }
-
     Err("Unable to focus window – neither wmctrl nor xdotool succeeded".into())
 }
 

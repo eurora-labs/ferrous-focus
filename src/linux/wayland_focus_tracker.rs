@@ -1,9 +1,6 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
 use std::process::Command;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use swayipc::{Connection, Event, EventType, WindowChange};
 
 pub fn track_focus<F>(mut on_focus: F) -> FerrousFocusResult<()>
@@ -83,10 +80,7 @@ where
     Ok(())
 }
 
-pub fn track_focus_with_stop<F>(
-    mut on_focus: F,
-    stop_signal: Arc<AtomicBool>,
-) -> FerrousFocusResult<()>
+pub fn track_focus_with_stop<F>(mut on_focus: F, stop_signal: &AtomicBool) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {

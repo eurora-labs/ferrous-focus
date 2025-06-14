@@ -1,5 +1,5 @@
 use crate::{FerrousFocusResult, FocusedWindow, platform::impl_focus_tracker::ImplFocusTracker};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone)]
 pub struct FocusTracker {
@@ -25,7 +25,7 @@ impl FocusTracker {
     pub fn track_focus_with_stop<F>(
         &self,
         on_focus: F,
-        stop_signal: Arc<AtomicBool>,
+        stop_signal: &AtomicBool,
     ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,

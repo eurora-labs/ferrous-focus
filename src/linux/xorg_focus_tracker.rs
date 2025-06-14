@@ -1,8 +1,5 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -144,10 +141,7 @@ where
     }
 }
 
-pub fn track_focus_with_stop<F>(
-    mut on_focus: F,
-    stop_signal: Arc<AtomicBool>,
-) -> FerrousFocusResult<()>
+pub fn track_focus_with_stop<F>(mut on_focus: F, stop_signal: &AtomicBool) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {

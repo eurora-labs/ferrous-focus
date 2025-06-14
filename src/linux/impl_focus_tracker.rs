@@ -1,6 +1,6 @@
 use super::{utils::wayland_detect, wayland_focus_tracker, xorg_focus_tracker};
 use crate::{FerrousFocusResult, FocusedWindow};
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone)]
 pub struct ImplFocusTracker {}
@@ -26,7 +26,7 @@ impl ImplFocusTracker {
     pub fn track_focus_with_stop<F>(
         &self,
         on_focus: F,
-        stop_signal: Arc<AtomicBool>,
+        stop_signal: &AtomicBool,
     ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,

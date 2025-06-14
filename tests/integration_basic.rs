@@ -7,7 +7,10 @@ mod util;
 
 use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow};
 use serial_test::serial;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 use util::*;
 
@@ -77,16 +80,23 @@ fn test_basic_focus_tracking() {
     let focus_events = Arc::new(Mutex::new(Vec::<FocusedWindow>::new()));
     let focus_events_clone = focus_events.clone();
 
-    // Spawn the focus tracker in a separate thread with a timeout
-    let _tracker_handle = std::thread::spawn(move || {
+    // Create a stop signal for the tracker
+    let stop_signal = Arc::new(AtomicBool::new(false));
+    let stop_signal_clone = stop_signal.clone();
+
+    // Spawn the focus tracker in a separate thread with a stop signal
+    let tracker_handle = std::thread::spawn(move || {
         let tracker = FocusTracker::new();
-        let result = tracker.track_focus(move |window: FocusedWindow| -> FerrousFocusResult<()> {
-            println!("Focus event: {:?}", window);
-            if let Ok(mut events) = focus_events_clone.lock() {
-                events.push(window);
-            }
-            Ok(())
-        });
+        let result = tracker.track_focus_with_stop(
+            move |window: FocusedWindow| -> FerrousFocusResult<()> {
+                println!("Focus event: {:?}", window);
+                if let Ok(mut events) = focus_events_clone.lock() {
+                    events.push(window);
+                }
+                Ok(())
+            },
+            stop_signal_clone,
+        );
 
         match result {
             Ok(_) => println!("Focus tracking completed"),
@@ -97,9 +107,15 @@ fn test_basic_focus_tracking() {
     // Let the tracker run for a short time
     std::thread::sleep(Duration::from_millis(500));
 
-    // The tracker runs indefinitely, so we can't wait for it to complete
-    // In a real test, we would have a way to signal it to stop
-    println!("Focus tracking test initiated (tracker continues in background)");
+    // Signal the tracker to stop
+    stop_signal.store(true, Ordering::Relaxed);
+
+    // Wait for the tracker thread to finish
+    if let Err(e) = tracker_handle.join() {
+        eprintln!("Failed to join tracker thread: {:?}", e);
+    }
+
+    println!("Focus tracking test completed successfully");
 
     // Check if we got any focus events
     if let Ok(events) = focus_events.lock() {

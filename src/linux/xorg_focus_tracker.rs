@@ -1,4 +1,8 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -138,6 +142,146 @@ where
             FerrousFocusError::Platform(format!("Failed to flush connection: {}", e))
         })?;
     }
+}
+
+pub fn track_focus_with_stop<F>(
+    mut on_focus: F,
+    stop_signal: Arc<AtomicBool>,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
+{
+    // ── X11 setup ──────────────────────────────────────────────────────────────
+    let (conn, screen_num) =
+        RustConnection::connect(None).map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
+    let screen = &conn.setup().roots[screen_num];
+    let root = screen.root;
+
+    let net_active_window = atom(&conn, b"_NET_ACTIVE_WINDOW")?;
+    let net_wm_name = atom(&conn, b"_NET_WM_NAME")?;
+    let net_wm_pid = atom(&conn, b"_NET_WM_PID")?;
+    let utf8_string = atom(&conn, b"UTF8_STRING")?;
+    let net_wm_icon = atom(&conn, b"_NET_WM_ICON")?;
+
+    conn.change_window_attributes(
+        root,
+        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+    )
+    .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
+    conn.flush()
+        .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
+
+    // Track the currently focused window to monitor its title changes
+    let mut current_focused_window: Option<u32> = None;
+
+    // ── Event loop ─────────────────────────────────────────────────────────────
+    loop {
+        // Check stop signal before waiting for events
+        if stop_signal.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let event = match conn.wait_for_event() {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("X11 error: {e}");
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+        };
+
+        if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
+            let mut should_emit_focus_event = false;
+            let mut new_window: Option<u32> = None;
+
+            // Check if this is an active window change
+            if atom == net_active_window && window == root {
+                // Active window changed
+                match active_window(&conn, root, net_active_window) {
+                    Ok(win) => {
+                        new_window = win;
+                        should_emit_focus_event = true;
+
+                        // Update monitoring for the new focused window
+                        if let Some(old_win) = current_focused_window {
+                            // Stop monitoring the old window
+                            let _ = conn.change_window_attributes(
+                                old_win,
+                                &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+                            );
+                        }
+
+                        if let Some(new_win) = new_window {
+                            // Start monitoring the new window for title changes
+                            let _ = conn.change_window_attributes(
+                                new_win,
+                                &ChangeWindowAttributesAux::new()
+                                    .event_mask(EventMask::PROPERTY_CHANGE),
+                            );
+                            current_focused_window = Some(new_win);
+                        } else {
+                            current_focused_window = None;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to get active window: {}", e);
+                        // Continue processing other events instead of crashing
+                        continue;
+                    }
+                }
+            }
+            // Check if this is a title change on the currently focused window
+            else if atom == net_wm_name && Some(window) == current_focused_window {
+                // Title changed on the focused window
+                new_window = current_focused_window;
+                should_emit_focus_event = true;
+            }
+
+            if should_emit_focus_event {
+                // ── Gather window data ────────────────────────────────────────────
+                let win = match new_window {
+                    Some(w) => w,
+                    None => continue,
+                };
+
+                // Handle window property queries with graceful error handling
+                let title = window_name(&conn, win, net_wm_name, utf8_string).unwrap_or_else(|e| {
+                    eprintln!("Failed to get window title for window {}: {}", win, e);
+                    "<unknown title>".to_string()
+                });
+
+                let proc = process_name(&conn, win, net_wm_pid).unwrap_or_else(|e| {
+                    eprintln!("Failed to get process name for window {}: {}", win, e);
+                    "<unknown>".to_string()
+                });
+
+                let icon = get_icon_data(&conn, win, net_wm_icon)
+                    .ok()
+                    .unwrap_or_else(|| IconData {
+                        width: 0,
+                        height: 0,
+                        pixels: Vec::new(),
+                    });
+
+                // ── Invoke user-supplied handler ──────────────────────────────────
+                if let Err(e) = on_focus(FocusedWindow {
+                    process_id: None,
+                    process_name: Some(proc),
+                    window_title: Some(title),
+                    icon: Some(icon),
+                }) {
+                    eprintln!("Focus event handler failed: {}", e);
+                    // Continue processing instead of propagating the error
+                }
+            }
+        }
+
+        conn.flush().map_err(|e| {
+            FerrousFocusError::Platform(format!("Failed to flush connection: {}", e))
+        })?;
+    }
+
+    Ok(())
 }
 
 /* ------------------------------------------------------------ */

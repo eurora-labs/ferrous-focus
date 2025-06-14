@@ -114,9 +114,11 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
         Command::new("xdotool")
             .args(&["search", "--pid", &pid.to_string(), "windowactivate"])
             .output()?;
+
+        return Ok(());
     }
 
-    Ok(())
+    Err("Unable to focus window – neither wmctrl nor xdotool succeeded".into())
 }
 
 #[cfg(target_os = "windows")]

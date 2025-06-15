@@ -354,7 +354,9 @@ fn get_icon_data<C: Connection>(
                                 ));
                             }
 
-                            let expected_pixels = width * height;
+                            let expected_pixels = width.checked_mul(height).ok_or_else(|| {
+                                FerrousFocusError::Platform("Icon dimensions overflow".into())
+                            })?;
                             let available_pixels = values.len() - 2; // Subtract width and height
 
                             if available_pixels < expected_pixels {
@@ -365,7 +367,11 @@ fn get_icon_data<C: Connection>(
                             }
 
                             // Convert ARGB u32 values to RGBA u8 bytes
-                            let mut pixels = Vec::with_capacity(expected_pixels * 4);
+                            let mut pixels = Vec::with_capacity(
+                                expected_pixels.checked_mul(4).ok_or_else(|| {
+                                    FerrousFocusError::Platform("Icon dimensions overflow".into())
+                                })?,
+                            );
                             for &argb in &values[2..2 + expected_pixels] {
                                 // Extract ARGB components (native endian)
                                 let a = ((argb >> 24) & 0xFF) as u8;

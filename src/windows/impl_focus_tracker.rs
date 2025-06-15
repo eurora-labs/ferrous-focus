@@ -43,7 +43,7 @@ impl ImplFocusTracker {
 
         // Get initial focused window
         if let Some(hwnd) = utils::get_foreground_window() {
-            if let Ok((title, process)) = utils::get_window_info(hwnd) {
+            if let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) } {
                 let icon = get_window_icon(hwnd).ok();
 
                 if let Err(e) = on_focus(FocusedWindow {
@@ -77,7 +77,7 @@ impl ImplFocusTracker {
                     None => true,
                 };
 
-                match utils::get_window_info(current_hwnd) {
+                match unsafe { utils::get_window_info(current_hwnd) } {
                     Ok((title, process)) => {
                         // Also check if title changed for the same window
                         let title_changed = match &prev_title {

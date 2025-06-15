@@ -23,7 +23,11 @@ pub fn get_foreground_window() -> Option<HWND> {
 }
 
 /// Get the title of a window
-pub fn get_window_title(hwnd: HWND) -> FerrousFocusResult<String> {
+///
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer (HWND).
+/// The caller must ensure that the HWND is valid.
+pub unsafe fn get_window_title(hwnd: HWND) -> FerrousFocusResult<String> {
     let mut buffer = [0u16; 512];
     let len = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
 
@@ -39,7 +43,11 @@ pub fn get_window_title(hwnd: HWND) -> FerrousFocusResult<String> {
 }
 
 /// Get the process ID of a window
-pub fn get_window_process_id(hwnd: HWND) -> FerrousFocusResult<u32> {
+///
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer (HWND).
+/// The caller must ensure that the HWND is valid.
+pub unsafe fn get_window_process_id(hwnd: HWND) -> FerrousFocusResult<u32> {
     let mut process_id = 0u32;
     unsafe {
         GetWindowThreadProcessId(hwnd, &mut process_id);
@@ -94,9 +102,13 @@ pub fn get_process_name(process_id: u32) -> FerrousFocusResult<String> {
 }
 
 /// Get window information (title and process name) for a given window handle
-pub fn get_window_info(hwnd: HWND) -> FerrousFocusResult<(String, String)> {
-    let title = get_window_title(hwnd).unwrap_or_else(|_| String::new());
-    let process_id = get_window_process_id(hwnd)?;
+///
+/// # Safety
+/// This function is unsafe because it calls unsafe functions that dereference raw pointers.
+/// The caller must ensure that the HWND is valid.
+pub unsafe fn get_window_info(hwnd: HWND) -> FerrousFocusResult<(String, String)> {
+    let title = unsafe { get_window_title(hwnd) }.unwrap_or_else(|_| String::new());
+    let process_id = unsafe { get_window_process_id(hwnd) }?;
     let process_name =
         get_process_name(process_id).unwrap_or_else(|_| format!("Process_{}", process_id));
 
@@ -104,6 +116,10 @@ pub fn get_window_info(hwnd: HWND) -> FerrousFocusResult<(String, String)> {
 }
 
 /// Check if a window handle is valid
-pub fn is_valid_window(hwnd: HWND) -> bool {
+///
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer (HWND).
+/// The caller must ensure that the HWND is not dangling.
+pub unsafe fn is_valid_window(hwnd: HWND) -> bool {
     !hwnd.is_null() && unsafe { IsWindow(hwnd) } != 0
 }

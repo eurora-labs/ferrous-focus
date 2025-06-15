@@ -127,6 +127,15 @@ unsafe fn get_window_title_via_applescript() -> FerrousFocusResult<Option<String
         if !title.is_empty() {
             return Ok(Some(title));
         }
+    } else {
+        // Check if the error is related to accessibility permissions
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("not allowed assistive access")
+            || stderr.contains("accessibility")
+            || stderr.contains("permission")
+        {
+            return Err(crate::error::FerrousFocusError::NoPermission);
+        }
     }
 
     Ok(None)

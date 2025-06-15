@@ -37,6 +37,11 @@ impl ImplFocusTracker {
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
+        // Check if we're in an interactive session
+        if !utils::is_interactive_session() {
+            return Err(FerrousFocusError::NotInteractiveSession);
+        }
+
         // Track the previously focused window to avoid duplicate events
         let mut prev_hwnd: Option<HWND> = None;
         let mut prev_title: Option<String> = None;

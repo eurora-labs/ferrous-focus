@@ -13,7 +13,7 @@ struct CachedResult {
 static APP_NAME_CACHE: OnceLock<Mutex<Option<CachedResult>>> = OnceLock::new();
 static WINDOW_TITLE_CACHE: OnceLock<Mutex<Option<CachedResult>>> = OnceLock::new();
 
-const CACHE_DURATION: Duration = Duration::from_millis(50); // 50ms cache for more responsive detection
+const CACHE_DURATION: Duration = Duration::from_millis(500); // 500ms cache for more responsive detection
 
 /// Get the name of the frontmost application using objc2 APIs
 pub fn get_frontmost_app_name() -> FerrousFocusResult<Option<String>> {

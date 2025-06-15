@@ -125,6 +125,17 @@ fn get_focused_window_info() -> FerrousFocusResult<(String, String, Option<Vec<u
     Ok((process, title, icon_data))
 }
 
+/// Safely escape a string for use in AppleScript by using AppleScript's 'quoted form of'
+/// This prevents AppleScript injection by properly quoting special characters
+fn shell_escape_for_applescript(input: &str) -> String {
+    // Use AppleScript's 'quoted form of' which safely handles all special characters
+    // including quotes, backslashes, and other potentially dangerous characters
+    format!(
+        "quoted form of \"{}\"",
+        input.replace("\"", "\\\"").replace("\\", "\\\\")
+    )
+}
+
 /// Get the application icon for a given process name
 fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
     // This is a simplified implementation using AppleScript to get the app icon
@@ -134,17 +145,22 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
     let temp_file = format!("/tmp/app_icon_{}.png", std::process::id());
 
     // AppleScript to extract the application icon and save it to a file
+    // Use AppleScript's 'quoted form of' to safely handle process names with special characters
+    let escaped_process_name = shell_escape_for_applescript(process_name);
+    let escaped_temp_file = shell_escape_for_applescript(&temp_file);
+
     let script = format!(
         r#"
         try
+            set processName to {}
+            set tempFileName to {}
             tell application "Finder"
-                set appPath to application file "{}" as alias
+                set appPath to application file processName as alias
                 set appIcon to icon of appPath
                 set tempFolder to path to temporary items as string
-                set tempFile to "{}"
 
                 tell application "System Events"
-                    set iconFile to (make new file at tempFolder with properties {{name:tempFile}})
+                    set iconFile to (make new file at tempFolder with properties {{name:tempFileName}})
                     set iconPath to path of iconFile
                 end tell
 
@@ -155,7 +171,7 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
             return ""
         end try
         "#,
-        process_name, temp_file
+        escaped_process_name, escaped_temp_file
     );
 
     // Execute the AppleScript

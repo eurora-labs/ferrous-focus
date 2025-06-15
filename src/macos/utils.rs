@@ -69,10 +69,10 @@ pub fn get_frontmost_window_title() -> FerrousFocusResult<Option<String>> {
         let workspace = NSWorkspace::sharedWorkspace();
         let frontmost_app = workspace.frontmostApplication();
 
-        if let Some(app) = frontmost_app {
+        if let Some(_app) = frontmost_app {
             // Try to get the window title using AppleScript as a fallback
             // This is more reliable than accessibility APIs for basic window titles
-            let title = get_window_title_via_applescript().unwrap_or_else(|_| None);
+            let title = get_window_title_via_applescript().unwrap_or(None);
 
             if let Some(ref title_str) = title {
                 // Update cache

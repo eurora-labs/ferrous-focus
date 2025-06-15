@@ -22,6 +22,13 @@ pub fn get_foreground_window() -> Option<HWND> {
     }
 }
 
+/// Check if we're running in an interactive session
+pub fn is_interactive_session() -> FerrousFocusResult<bool> {
+    // Check if we can get the foreground window
+    // In a service context, this will typically fail
+    Ok(unsafe { !GetForegroundWindow().is_null() })
+}
+
 /// Get the title of a window
 ///
 /// # Safety

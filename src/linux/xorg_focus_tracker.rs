@@ -31,8 +31,18 @@ where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
     // ── X11 setup ──────────────────────────────────────────────────────────────
-    let (conn, screen_num) =
-        RustConnection::connect(None).map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
+    let (conn, screen_num) = RustConnection::connect(None).map_err(|e| {
+        let error_str = e.to_string();
+        // Check if this is a "no display" error
+        if error_str.contains("DISPLAY")
+            || error_str.contains("display")
+            || error_str.contains("No such file or directory")
+        {
+            FerrousFocusError::NoDisplay
+        } else {
+            FerrousFocusError::Platform(error_str)
+        }
+    })?;
     let screen = &conn.setup().roots[screen_num];
     let root = screen.root;
 

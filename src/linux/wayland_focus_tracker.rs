@@ -13,9 +13,7 @@ where
 
     // Check if we're running under Sway
     if !is_sway_available() {
-        return Err(FerrousFocusError::Platform(
-            "Wayland focus tracking currently only supports Sway compositor".to_string(),
-        ));
+        return Err(FerrousFocusError::Unsupported);
     }
 
     let mut last_focused: Option<String> = None;
@@ -87,9 +85,7 @@ where
 
     // Check if we're running under Sway
     if !is_sway_available() {
-        return Err(FerrousFocusError::Platform(
-            "Wayland focus tracking currently only supports Sway compositor".to_string(),
-        ));
+        return Err(FerrousFocusError::Unsupported);
     }
 
     let mut last_focused: Option<String> = None;

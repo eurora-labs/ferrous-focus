@@ -336,7 +336,7 @@ fn get_icon_data<C: Connection>(
                     // [width, height, pixel_data...]
                     // Each pixel is ARGB in native endian format
                     match reply.value32() {
-                        Some(mut values) => {
+                        Some(values) => {
                             let values: Vec<u32> = values.collect();
 
                             if values.len() < 2 {

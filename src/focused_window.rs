@@ -4,7 +4,7 @@ use crate::FerrousFocusResult;
 use core::fmt;
 
 /// Raw icon data in 32‑bit RGBA format (premultiplied or straight depending on the platform).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct IconData {
     /// Pixel width of the icon.
     pub width: usize,

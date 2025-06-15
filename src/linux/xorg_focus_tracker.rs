@@ -317,11 +317,6 @@ fn get_icon_data<C: Connection>(
     window: u32,
     net_wm_icon: u32,
 ) -> FerrousFocusResult<IconData> {
-    let mut icon_data = IconData {
-        width: 0,
-        height: 0,
-        pixels: Vec::new(),
-    };
     match conn.get_property(
         false,
         window,
@@ -337,22 +332,80 @@ fn get_icon_data<C: Connection>(
                         return Err(FerrousFocusError::Unsupported);
                     }
 
-                    // The icon data is an array of 8-bit values
-                    match reply.value8() {
+                    // The _NET_WM_ICON property contains 32-bit values in the format:
+                    // [width, height, pixel_data...]
+                    // Each pixel is ARGB in native endian format
+                    match reply.value32() {
                         Some(values) => {
-                            let values = values.collect::<Vec<u8>>();
-                            let size = values.len();
-                            icon_data.width = size;
-                            icon_data.height = size;
-                            icon_data.pixels = values;
-                            Ok(icon_data)
+                            let values: Vec<u32> = values.collect();
+
+                            if values.len() < 2 {
+                                return Err(FerrousFocusError::Platform(
+                                    "Invalid icon data: missing width/height".to_string(),
+                                ));
+                            }
+
+                            let width = values[0] as usize;
+                            let height = values[1] as usize;
+
+                            if width == 0 || height == 0 {
+                                return Err(FerrousFocusError::Platform(
+                                    "Invalid icon dimensions".to_string(),
+                                ));
+                            }
+
+                            let expected_pixels = width.checked_mul(height).ok_or_else(|| {
+                                FerrousFocusError::Platform("Icon dimensions overflow".into())
+                            })?;
+                            let available_pixels = values.len() - 2; // Subtract width and height
+
+                            if available_pixels < expected_pixels {
+                                return Err(FerrousFocusError::Platform(format!(
+                                    "Insufficient pixel data: expected {}, got {}",
+                                    expected_pixels, available_pixels
+                                )));
+                            }
+
+                            // Convert ARGB u32 values to RGBA u8 bytes
+                            let mut pixels = Vec::with_capacity(
+                                expected_pixels.checked_mul(4).ok_or_else(|| {
+                                    FerrousFocusError::Platform("Icon dimensions overflow".into())
+                                })?,
+                            );
+                            for &argb in &values[2..2 + expected_pixels] {
+                                // Extract ARGB components (native endian)
+                                let a = ((argb >> 24) & 0xFF) as u8;
+                                let r = ((argb >> 16) & 0xFF) as u8;
+                                let g = ((argb >> 8) & 0xFF) as u8;
+                                let b = (argb & 0xFF) as u8;
+
+                                // Store as RGBA
+                                pixels.push(r);
+                                pixels.push(g);
+                                pixels.push(b);
+                                pixels.push(a);
+                            }
+
+                            Ok(IconData {
+                                width,
+                                height,
+                                pixels,
+                            })
                         }
-                        None => Err(FerrousFocusError::Unsupported),
+                        None => Err(FerrousFocusError::Platform(
+                            "Failed to parse icon data as 32-bit values".to_string(),
+                        )),
                     }
                 }
-                Err(err) => Err(FerrousFocusError::Error(err.to_string())),
+                Err(err) => Err(FerrousFocusError::Platform(format!(
+                    "Failed to get icon property: {}",
+                    err
+                ))),
             }
         }
-        Err(err) => Err(FerrousFocusError::Error(err.to_string())),
+        Err(err) => Err(FerrousFocusError::Platform(format!(
+            "Failed to request icon property: {}",
+            err
+        ))),
     }
 }

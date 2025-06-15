@@ -13,3 +13,5 @@ Cargo.lock
 *.md
 !./README.md
 
+examples/recorded_icons/*
+!examples/recorded_icons/.gitkeep

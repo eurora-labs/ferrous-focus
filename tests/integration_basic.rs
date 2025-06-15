@@ -96,7 +96,7 @@ fn test_basic_focus_tracking() {
                 }
                 Ok(())
             },
-            &*stop_signal_clone,
+            &stop_signal_clone,
         );
 
         match result {

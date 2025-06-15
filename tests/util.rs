@@ -14,8 +14,8 @@ use tracing::info;
 /// A `Child` process handle for the spawned window
 pub fn spawn_test_window(title: &str) -> Result<Child, Box<dyn std::error::Error>> {
     let mut cmd = Command::new("cargo");
-    cmd.args(&["run", "--example", "spawn_window", "--"])
-        .args(&["--title", title])
+    cmd.args(["run", "--example", "spawn_window", "--"])
+        .args(["--title", title])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -28,32 +28,32 @@ pub fn spawn_test_window(title: &str) -> Result<Child, Box<dyn std::error::Error
     Ok(child)
 }
 
-/// Spawn a test window with an icon
-///
-/// # Arguments
-/// * `title` - The window title to set
-/// * `icon_path` - Path to the icon file
-///
-/// # Returns
-/// A `Child` process handle for the spawned window
-pub fn spawn_test_window_with_icon(
-    title: &str,
-    icon_path: &str,
-) -> Result<Child, Box<dyn std::error::Error>> {
-    let mut cmd = Command::new("cargo");
-    cmd.args(&["run", "--example", "spawn_window", "--"])
-        .args(&["--title", title, "--icon", icon_path])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+// /// Spawn a test window with an icon
+// ///
+// /// # Arguments
+// /// * `title` - The window title to set
+// /// * `icon_path` - Path to the icon file
+// ///
+// /// # Returns
+// /// A `Child` process handle for the spawned window
+// pub fn spawn_test_window_with_icon(
+//     title: &str,
+//     icon_path: &str,
+// ) -> Result<Child, Box<dyn std::error::Error>> {
+//     let mut cmd = Command::new("cargo");
+//     cmd.args(&["run", "--example", "spawn_window", "--"])
+//         .args(&["--title", title, "--icon", icon_path])
+//         .stdin(Stdio::null())
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped());
 
-    let child = cmd.spawn()?;
+//     let child = cmd.spawn()?;
 
-    // Give the window time to appear
-    std::thread::sleep(Duration::from_millis(500));
+//     // Give the window time to appear
+//     std::thread::sleep(Duration::from_millis(500));
 
-    Ok(child)
-}
+//     Ok(child)
+// }
 
 /// Focus a window (platform-specific implementation)
 ///
@@ -88,7 +88,7 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
 
     // Use wmctrl to focus the window by PID if available
     if Command::new("wmctrl").arg("-l").output().is_ok() {
-        let output = Command::new("wmctrl").args(&["-l", "-p"]).output()?;
+        let output = Command::new("wmctrl").args(["-l", "-p"]).output()?;
 
         let output_str = String::from_utf8_lossy(&output.stdout);
 
@@ -101,7 +101,7 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
                         let window_id = parts[0];
                         // Focus the window
                         Command::new("wmctrl")
-                            .args(&["-i", "-a", window_id])
+                            .args(["-i", "-a", window_id])
                             .output()?;
                         return Ok(());
                     }
@@ -112,14 +112,14 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
     // Fallback: use xdotool if available
     if Command::new("xdotool").arg("--version").status()?.success() {
         let ids = Command::new("xdotool")
-            .args(&["search", "--pid", &pid.to_string()])
+            .args(["search", "--pid", &pid.to_string()])
             .output()?;
         if !ids.status.success() {
             return Err("xdotool search failed".into());
         }
         if let Some(id) = String::from_utf8_lossy(&ids.stdout).lines().next() {
             let status = Command::new("xdotool")
-                .args(&["windowactivate", id])
+                .args(["windowactivate", id])
                 .status()?;
             if status.success() {
                 return Ok(());
@@ -200,7 +200,7 @@ fn get_focused_window_linux() -> Result<ferrous_focus::FocusedWindow, Box<dyn st
 
     // Try to get the focused window using xdotool
     if let Ok(output) = Command::new("xdotool")
-        .args(&["getwindowfocus", "getwindowname"])
+        .args(["getwindowfocus", "getwindowname"])
         .output()
     {
         let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -268,7 +268,7 @@ pub fn setup_test_environment() -> Result<(), Box<dyn std::error::Error>> {
 /// Cleanup function to terminate child processes
 pub fn cleanup_child_process(mut child: Child) -> Result<(), Box<dyn std::error::Error>> {
     // Try to terminate gracefully first
-    if let Err(_) = child.kill() {
+    if child.kill().is_err() {
         // If kill fails, the process might have already exited
     }
 

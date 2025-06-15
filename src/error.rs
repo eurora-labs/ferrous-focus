@@ -16,6 +16,15 @@ pub enum FerrousFocusError {
     #[error("Permission denied")]
     PermissionDenied,
 
+    #[error("No permission for accessibility features")]
+    NoPermission,
+
+    #[error("No display available")]
+    NoDisplay,
+
+    #[error("Not running in interactive session")]
+    NotInteractiveSession,
+
     #[error("Platform error: {0}")]
     Platform(String),
 }

@@ -14,6 +14,12 @@ impl FocusTracker {
     }
 }
 
+impl Default for FocusTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FocusTracker {
     pub fn track_focus<F>(&self, on_focus: F) -> FerrousFocusResult<()>
     where

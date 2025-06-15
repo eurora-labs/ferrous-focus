@@ -134,7 +134,7 @@ unsafe fn get_window_title_via_applescript() -> FerrousFocusResult<Option<String
             || stderr.contains("accessibility")
             || stderr.contains("permission")
         {
-            return Err(crate::error::FerrousFocusError::NoPermission);
+            return Err(crate::error::FerrousFocusError::PermissionDenied);
         }
     }
 

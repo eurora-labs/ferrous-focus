@@ -38,7 +38,7 @@ impl ImplFocusTracker {
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
         // Check if we're in an interactive session
-        if !utils::is_interactive_session() {
+        if !utils::is_interactive_session()? {
             return Err(FerrousFocusError::NotInteractiveSession);
         }
 

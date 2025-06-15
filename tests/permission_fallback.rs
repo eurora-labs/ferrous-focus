@@ -9,6 +9,7 @@ use ferrous_focus::{FerrousFocusError, FerrousFocusResult, FocusTracker, Focused
 use serial_test::serial;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use util::*;
@@ -34,14 +35,17 @@ fn test_macos_accessibility_permission() {
 
     let tracker = FocusTracker::new();
     let stop_signal = AtomicBool::new(false);
-    let mut focus_events = Vec::new();
+    let focus_events = Arc::new(Mutex::new(Vec::new()));
 
     // Try to track focus - this should either work (if permission granted)
     // or return an error/None window title (if permission denied)
+    let focus_events_clone = Arc::clone(&focus_events);
     let result = tracker.track_focus_with_stop(
-        |window: FocusedWindow| -> FerrousFocusResult<()> {
+        move |window: FocusedWindow| -> FerrousFocusResult<()> {
             info!("Focus event received: {:?}", window);
-            focus_events.push(window);
+            if let Ok(mut events) = focus_events_clone.lock() {
+                events.push(window);
+            }
             Ok(())
         },
         &stop_signal,
@@ -55,12 +59,11 @@ fn test_macos_accessibility_permission() {
         Ok(_) => {
             info!("Focus tracking succeeded - accessibility permission likely granted");
             // Check if we got meaningful window titles
-            if focus_events.iter().any(|w| w.window_title.is_none()) {
-                info!("Some windows had no title - possible permission issue");
+            if let Ok(events) = focus_events.lock() {
+                if events.iter().any(|w| w.window_title.is_none()) {
+                    info!("Some windows had no title - possible permission issue");
+                }
             }
-        }
-        Err(FerrousFocusError::NoPermission) => {
-            info!("Expected NoPermission error received");
         }
         Err(FerrousFocusError::PermissionDenied) => {
             info!("Expected PermissionDenied error received");
@@ -333,7 +336,6 @@ fn test_error_types() {
         FerrousFocusError::StdSyncPoisonError("Test poison".to_string()),
         FerrousFocusError::Unsupported,
         FerrousFocusError::PermissionDenied,
-        FerrousFocusError::NoPermission,
         FerrousFocusError::NoDisplay,
         FerrousFocusError::NotInteractiveSession,
         FerrousFocusError::Platform("Test platform error".to_string()),

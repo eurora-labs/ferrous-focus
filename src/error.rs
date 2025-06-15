@@ -16,9 +16,6 @@ pub enum FerrousFocusError {
     #[error("Permission denied")]
     PermissionDenied,
 
-    #[error("No permission for accessibility features")]
-    NoPermission,
-
     #[error("No display available")]
     NoDisplay,
 

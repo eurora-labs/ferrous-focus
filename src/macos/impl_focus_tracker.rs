@@ -117,7 +117,7 @@ fn get_focused_window_info() -> FerrousFocusResult<(String, String, Option<Vec<u
 
     // Get the frontmost window title
     let title_opt = utils::get_frontmost_window_title()?;
-    let title = title_opt.unwrap_or_else(|| format!("{} (No window title)", process));
+    let title = title_opt.unwrap_or_else(|| format!("{process} (No window title)"));
 
     // Try to get the application icon
     let icon_data = get_app_icon(&process).ok();
@@ -152,8 +152,8 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
     let script = format!(
         r#"
         try
-            set processName to {}
-            set tempFileName to {}
+            set processName to {escaped_process_name}
+            set tempFileName to {escaped_temp_file}
             tell application "Finder"
                 set appPath to application file processName as alias
                 set appIcon to icon of appPath
@@ -170,8 +170,7 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
         on error
             return ""
         end try
-        "#,
-        escaped_process_name, escaped_temp_file
+        "#
     );
 
     // Execute the AppleScript
@@ -179,9 +178,7 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
         .arg("-e")
         .arg(&script)
         .output()
-        .map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to execute AppleScript: {}", e))
-        })?;
+        .map_err(|e| FerrousFocusError::Platform(format!("Failed to execute AppleScript: {e}")))?;
 
     if !output.status.success() {
         return Err(FerrousFocusError::Platform(

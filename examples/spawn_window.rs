@@ -6,7 +6,7 @@ use std::env;
 use std::path::Path;
 use winit::{
     application::ApplicationHandler,
-    event::{Event, WindowEvent},
+    event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowAttributes, WindowId},
 };
@@ -51,10 +51,8 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                // Handle redraw if needed
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
+                // Handle redraw - actual drawing logic would go here
+                // Note: Do not call window.request_redraw() here as it creates an infinite loop
             }
             _ => {}
         }

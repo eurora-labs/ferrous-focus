@@ -95,7 +95,7 @@ fn test_basic_focus_tracking() {
                 }
                 Ok(())
             },
-            &stop_signal_clone,
+            &*stop_signal_clone,
         );
 
         match result {
@@ -120,6 +120,7 @@ fn test_basic_focus_tracking() {
     // Check if we got any focus events
     if let Ok(events) = focus_events.lock() {
         println!("Captured {} focus events", events.len());
+        assert!(!events.is_empty());
         for (i, event) in events.iter().enumerate() {
             println!("Event {}: {:?}", i + 1, event);
         }

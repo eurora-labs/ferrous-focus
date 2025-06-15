@@ -45,9 +45,9 @@ impl ImplFocusTracker {
         if let Some(hwnd) = utils::get_foreground_window() {
             if let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) } {
                 let icon = get_window_icon(hwnd).ok();
-
+                let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
                 if let Err(e) = on_focus(FocusedWindow {
-                    process_id: None, // Windows doesn't easily provide PID from HWND
+                    process_id: Some(process_id),
                     process_name: Some(process.clone()),
                     window_title: Some(title.clone()),
                     icon,
@@ -81,16 +81,17 @@ impl ImplFocusTracker {
                     Ok((title, process)) => {
                         // Also check if title changed for the same window
                         let title_changed = match &prev_title {
-                            Some(prev_t) => *prev_t != title,
+                            Some(prev_t) => prev_t != &title,
                             None => true,
                         };
 
                         // Trigger handler if either window focus or title has changed
                         if focus_changed || title_changed {
                             let icon = get_window_icon(current_hwnd).ok();
-
+                            let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
+                                .unwrap_or_default();
                             if let Err(e) = on_focus(FocusedWindow {
-                                process_id: None, // Windows doesn't easily provide PID from HWND
+                                process_id: Some(process_id),
                                 process_name: Some(process.clone()),
                                 window_title: Some(title.clone()),
                                 icon,

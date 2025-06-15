@@ -1,6 +1,4 @@
 //! Shared types for the cross‑platform focus tracker crate.
-
-use crate::FerrousFocusResult;
 use core::fmt;
 
 /// Raw icon data in 32‑bit RGBA format (premultiplied or straight depending on the platform).
@@ -35,10 +33,4 @@ pub struct FocusedWindow {
     pub window_title: Option<String>,
     /// Raw icon data (may be `None` if not retrievable on the platform).
     pub icon: Option<IconData>,
-}
-
-/// Platform backend contract. Each OS‑specific module must implement this trait.
-pub trait FocusProvider {
-    /// Retrieve the currently focused window metadata snapshot.
-    fn focused_window() -> FerrousFocusResult<FocusedWindow>;
 }

@@ -25,4 +25,8 @@ jobs:
                   Xvfb :99 -screen 0 1024x768x24 &
             - run: cargo fmt -- --check
             - run: cargo clippy --all-features -- -D warnings
-            - run: INTEGRATION_TEST=1 cargo test --all --all-features -- --test-threads=1
+            - name: Test
+              run: cargo test --all --all-features -- --test-threads=1
+              env:
+                  INTEGRATION_TEST: 1
+

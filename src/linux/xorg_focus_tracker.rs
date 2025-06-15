@@ -1,5 +1,6 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
 use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::info;
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -72,7 +73,7 @@ where
                         continue;
                     }
                     Err(e) => {
-                        eprintln!("X11 error: {e}");
+                        info!("X11 error: {e}");
                         std::thread::sleep(std::time::Duration::from_secs(1));
                         continue;
                     }
@@ -83,7 +84,7 @@ where
                 match conn.wait_for_event() {
                     Ok(e) => e,
                     Err(e) => {
-                        eprintln!("X11 error: {e}");
+                        info!("X11 error: {e}");
                         std::thread::sleep(std::time::Duration::from_secs(1));
                         continue;
                     }
@@ -125,7 +126,7 @@ where
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to get active window: {}", e);
+                        info!("Failed to get active window: {}", e);
                         // Continue processing other events instead of crashing
                         continue;
                     }
@@ -147,12 +148,12 @@ where
 
                 // Handle window property queries with graceful error handling
                 let title = window_name(&conn, win, net_wm_name, utf8_string).unwrap_or_else(|e| {
-                    eprintln!("Failed to get window title for window {}: {}", win, e);
+                    info!("Failed to get window title for window {}: {}", win, e);
                     "<unknown title>".to_string()
                 });
 
                 let proc = process_name(&conn, win, net_wm_pid).unwrap_or_else(|e| {
-                    eprintln!("Failed to get process name for window {}: {}", win, e);
+                    info!("Failed to get process name for window {}: {}", win, e);
                     "<unknown>".to_string()
                 });
 
@@ -171,7 +172,7 @@ where
                     window_title: Some(title),
                     icon: Some(icon),
                 }) {
-                    eprintln!("Focus event handler failed: {}", e);
+                    info!("Focus event handler failed: {}", e);
                     // Continue processing instead of propagating the error
                 }
             }

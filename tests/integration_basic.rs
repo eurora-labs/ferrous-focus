@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
+use tracing::info;
 use util::*;
 
 #[test]
@@ -19,24 +20,24 @@ use util::*;
 fn test_environment_setup() {
     // This test just verifies that our test environment setup works
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
     assert!(setup_test_environment().is_ok());
-    println!("Test environment setup successful");
+    info!("Test environment setup successful");
 }
 
 #[test]
 #[serial]
 fn test_spawn_window_helper() {
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
     if let Err(e) = setup_test_environment() {
-        println!("Skipping test due to environment setup failure: {}", e);
+        info!("Skipping test due to environment setup failure: {}", e);
         return;
     }
 
@@ -44,18 +45,18 @@ fn test_spawn_window_helper() {
     let child = spawn_test_window("Test Window Basic");
     match child {
         Ok(child) => {
-            println!("Successfully spawned test window");
+            info!("Successfully spawned test window");
 
             // Let the window exist for a moment
             std::thread::sleep(Duration::from_secs(1));
 
             // Clean up
             if let Err(e) = cleanup_child_process(child) {
-                eprintln!("Warning: Failed to cleanup child process: {}", e);
+                info!("Warning: Failed to cleanup child process: {}", e);
             }
         }
         Err(e) => {
-            println!(
+            info!(
                 "Failed to spawn test window (this may be expected in headless environments): {}",
                 e
             );
@@ -67,12 +68,12 @@ fn test_spawn_window_helper() {
 #[serial]
 fn test_basic_focus_tracking() {
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
     if let Err(e) = setup_test_environment() {
-        println!("Skipping test due to environment setup failure: {}", e);
+        info!("Skipping test due to environment setup failure: {}", e);
         return;
     }
 
@@ -89,7 +90,7 @@ fn test_basic_focus_tracking() {
         let tracker = FocusTracker::new();
         let result = tracker.track_focus_with_stop(
             move |window: FocusedWindow| -> FerrousFocusResult<()> {
-                println!("Focus event: {:?}", window);
+                info!("Focus event: {:?}", window);
                 if let Ok(mut events) = focus_events_clone.lock() {
                     events.push(window);
                 }
@@ -99,8 +100,8 @@ fn test_basic_focus_tracking() {
         );
 
         match result {
-            Ok(_) => println!("Focus tracking completed"),
-            Err(e) => println!("Focus tracking failed: {}", e),
+            Ok(_) => info!("Focus tracking completed"),
+            Err(e) => info!("Focus tracking failed: {}", e),
         }
     });
 
@@ -112,17 +113,17 @@ fn test_basic_focus_tracking() {
 
     // Wait for the tracker thread to finish
     if let Err(e) = tracker_handle.join() {
-        eprintln!("Failed to join tracker thread: {:?}", e);
+        info!("Failed to join tracker thread: {:?}", e);
     }
 
-    println!("Focus tracking test completed successfully");
+    info!("Focus tracking test completed successfully");
 
     // Check if we got any focus events
     if let Ok(events) = focus_events.lock() {
-        println!("Captured {} focus events", events.len());
+        info!("Captured {} focus events", events.len());
         assert!(!events.is_empty());
         for (i, event) in events.iter().enumerate() {
-            println!("Event {}: {:?}", i + 1, event);
+            info!("Event {}: {:?}", i + 1, event);
         }
     }
 }
@@ -131,7 +132,7 @@ fn test_basic_focus_tracking() {
 #[serial]
 fn test_wayland_detection() {
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
@@ -139,15 +140,15 @@ fn test_wayland_detection() {
     let using_wayland = should_use_wayland();
     let using_x11 = should_use_x11();
 
-    println!("Wayland flag: {}", using_wayland);
-    println!("X11 flag: {}", using_x11);
+    info!("Wayland flag: {}", using_wayland);
+    info!("X11 flag: {}", using_x11);
 
     // Test the actual detection logic from our utils
     #[cfg(target_os = "linux")]
     {
         use ferrous_focus::utils::wayland_detect;
         let detected_wayland = wayland_detect();
-        println!("Detected Wayland: {}", detected_wayland);
+        info!("Detected Wayland: {}", detected_wayland);
     }
 }
 
@@ -155,12 +156,12 @@ fn test_wayland_detection() {
 #[serial]
 fn test_focus_tracking_with_window() {
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
     if let Err(e) = setup_test_environment() {
-        println!("Skipping test due to environment setup failure: {}", e);
+        info!("Skipping test due to environment setup failure: {}", e);
         return;
     }
 
@@ -169,11 +170,11 @@ fn test_focus_tracking_with_window() {
 
     match spawn_test_window(window_title) {
         Ok(mut child) => {
-            println!("Spawned test window: {}", window_title);
+            info!("Spawned test window: {}", window_title);
 
             // Try to focus the window
             if let Err(e) = focus_window(&mut child) {
-                println!("Warning: Failed to focus window: {}", e);
+                info!("Warning: Failed to focus window: {}", e);
             }
 
             // Wait for focus to settle
@@ -181,15 +182,15 @@ fn test_focus_tracking_with_window() {
 
             // Test if we can detect the focused window
             let found_focus = wait_for_focus(window_title, Duration::from_secs(2));
-            println!("Found expected focus: {}", found_focus);
+            info!("Found expected focus: {}", found_focus);
 
             // Clean up
             if let Err(e) = cleanup_child_process(child) {
-                eprintln!("Warning: Failed to cleanup child process: {}", e);
+                info!("Warning: Failed to cleanup child process: {}", e);
             }
         }
         Err(e) => {
-            println!(
+            info!(
                 "Could not spawn test window (expected in headless environments): {}",
                 e
             );
@@ -202,7 +203,7 @@ fn test_focus_tracking_with_window() {
 #[serial]
 fn test_linux_backend_selection() {
     if !should_run_integration_tests() {
-        println!("Skipping integration test - INTEGRATION_TEST=1 not set");
+        info!("Skipping integration test - INTEGRATION_TEST=1 not set");
         return;
     }
 
@@ -210,12 +211,12 @@ fn test_linux_backend_selection() {
     use ferrous_focus::FocusTracker;
 
     let tracker = FocusTracker::new();
-    println!("Successfully created Linux focus tracker: {:?}", tracker);
+    info!("Successfully created Linux focus tracker: {:?}", tracker);
 
     // Test backend detection
     use ferrous_focus::utils::wayland_detect;
     let is_wayland = wayland_detect();
-    println!(
+    info!(
         "Detected backend - Wayland: {}, X11: {}",
         is_wayland, !is_wayland
     );

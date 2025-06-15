@@ -2,6 +2,7 @@ use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use swayipc::{Connection, Event, EventType, WindowChange};
+use tracing::info;
 
 pub fn track_focus<F>(mut on_focus: F) -> FerrousFocusResult<()>
 where
@@ -48,7 +49,7 @@ where
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to get focused window from event: {}", e);
+                                info!("Failed to get focused window from event: {}", e);
                             }
                         }
                     }
@@ -57,8 +58,8 @@ where
                     // Ignore other event types
                 }
                 Err(e) => {
-                    eprintln!("Error receiving window event: {}", e);
-                    eprintln!("Attempting to reconnect to sway IPC...");
+                    info!("Error receiving window event: {}", e);
+                    info!("Attempting to reconnect to sway IPC...");
                     should_reconnect = true;
                     break;
                 }
@@ -132,7 +133,7 @@ where
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to get focused window from event: {}", e);
+                                info!("Failed to get focused window from event: {}", e);
                             }
                         }
                     }
@@ -141,8 +142,8 @@ where
                     // Ignore other event types
                 }
                 Err(e) => {
-                    eprintln!("Error receiving window event: {}", e);
-                    eprintln!("Attempting to reconnect to sway IPC...");
+                    info!("Error receiving window event: {}", e);
+                    info!("Attempting to reconnect to sway IPC...");
                     should_reconnect = true;
                     break;
                 }

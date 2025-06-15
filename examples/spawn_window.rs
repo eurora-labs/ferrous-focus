@@ -4,6 +4,7 @@
 
 use std::env;
 use std::path::Path;
+use tracing::info;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -36,7 +37,7 @@ impl ApplicationHandler for App {
             if let Ok(icon) = load_icon(icon_path) {
                 window_attributes = window_attributes.with_window_icon(Some(icon));
             } else {
-                eprintln!("Warning: Failed to load icon from {}", icon_path);
+                info!("Warning: Failed to load icon from {}", icon_path);
             }
         }
 
@@ -47,7 +48,7 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
-                println!("Window close requested");
+                info!("Window close requested");
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
@@ -69,7 +70,7 @@ fn load_icon(path: &str) -> Result<winit::window::Icon, Box<dyn std::error::Erro
 }
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let args: Vec<String> = env::args().collect();
     let mut title = "Test Window".to_string();
@@ -84,7 +85,7 @@ fn main() {
                     title = args[i + 1].clone();
                     i += 2;
                 } else {
-                    eprintln!("Error: --title requires a value");
+                    info!("Error: --title requires a value");
                     std::process::exit(1);
                 }
             }
@@ -94,33 +95,33 @@ fn main() {
                     if Path::new(&path).exists() {
                         icon_path = Some(path);
                     } else {
-                        eprintln!("Warning: Icon file does not exist: {}", path);
+                        info!("Warning: Icon file does not exist: {}", path);
                     }
                     i += 2;
                 } else {
-                    eprintln!("Error: --icon requires a path");
+                    info!("Error: --icon requires a path");
                     std::process::exit(1);
                 }
             }
             "--help" | "-h" => {
-                println!("Usage: {} [OPTIONS]", args[0]);
-                println!("Options:");
-                println!("  --title <TITLE>    Set window title (default: 'Test Window')");
-                println!("  --icon <PATH>      Set window icon from image file");
-                println!("  --help, -h         Show this help message");
+                info!("Usage: {} [OPTIONS]", args[0]);
+                info!("Options:");
+                info!("  --title <TITLE>    Set window title (default: 'Test Window')");
+                info!("  --icon <PATH>      Set window icon from image file");
+                info!("  --help, -h         Show this help message");
                 std::process::exit(0);
             }
             _ => {
-                eprintln!("Unknown argument: {}", args[i]);
-                eprintln!("Use --help for usage information");
+                info!("Unknown argument: {}", args[i]);
+                info!("Use --help for usage information");
                 std::process::exit(1);
             }
         }
     }
 
-    println!("Creating window with title: '{}'", title);
+    info!("Creating window with title: '{}'", title);
     if let Some(ref icon) = icon_path {
-        println!("Using icon: {}", icon);
+        info!("Using icon: {}", icon);
     }
 
     let event_loop = EventLoop::new().unwrap();
@@ -138,7 +139,7 @@ fn main() {
         let r = running.clone();
 
         ctrlc::set_handler(move || {
-            println!("Received SIGTERM, shutting down...");
+            info!("Received SIGTERM, shutting down...");
             r.store(false, Ordering::SeqCst);
         })
         .expect("Error setting Ctrl-C handler");

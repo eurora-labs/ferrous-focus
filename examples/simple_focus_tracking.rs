@@ -6,9 +6,12 @@
 use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tracing::info;
+use tracing_subscriber::fmt;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting simple focus tracking example...");
+    fmt::init();
+    info!("Starting simple focus tracking example...");
 
     // Create a stop signal - no Arc wrapper needed!
     // We use Arc here only for sharing between threads, but the API itself doesn't require it
@@ -23,9 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tracker_handle = std::thread::spawn(move || {
         let result = tracker.track_focus_with_stop(
             |window: FocusedWindow| -> FerrousFocusResult<()> {
-                println!("Focus changed to: {:?}", window.window_title);
+                info!("Focus changed to: {:?}", window.window_title);
                 if let Some(process) = &window.process_name {
-                    println!("  Process: {}", process);
+                    info!("  Process: {}", process);
                 }
                 Ok(())
             },
@@ -33,24 +36,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         match result {
-            Ok(_) => println!("Focus tracking completed successfully"),
-            Err(e) => eprintln!("Focus tracking failed: {}", e),
+            Ok(_) => info!("Focus tracking completed successfully"),
+            Err(e) => info!("Focus tracking failed: {}", e),
         }
     });
 
     // Let it run for 5 seconds
-    println!("Tracking focus for 5 seconds...");
+    info!("Tracking focus for 5 seconds...");
     std::thread::sleep(Duration::from_secs(5));
 
     // Signal to stop
-    println!("Stopping focus tracking...");
+    info!("Stopping focus tracking...");
     stop_signal.store(true, Ordering::Relaxed);
 
     // Wait for completion
     if let Err(e) = tracker_handle.join() {
-        eprintln!("Failed to join tracker thread: {:?}", e);
+        info!("Failed to join tracker thread: {:?}", e);
     }
 
-    println!("Example completed!");
+    info!("Example completed!");
     Ok(())
 }

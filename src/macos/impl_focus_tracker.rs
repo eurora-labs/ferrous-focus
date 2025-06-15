@@ -63,6 +63,8 @@ impl ImplFocusTracker {
                     };
 
                     if focus_changed {
+                        info!("Focus changed: {} - {}", process, title);
+
                         // Convert icon data to IconData if available
                         let icon = match icon_data {
                             Some(data) => match convert_icon_to_icon_data(&data) {
@@ -93,8 +95,8 @@ impl ImplFocusTracker {
                 }
             }
 
-            // Sleep to avoid high CPU usage (we can keep checking frequently)
-            std::thread::sleep(Duration::from_millis(500));
+            // Sleep to avoid high CPU usage (reduced interval for better responsiveness)
+            std::thread::sleep(Duration::from_millis(200));
         }
 
         Ok(())
@@ -107,14 +109,15 @@ impl ImplFocusTracker {
 
 /// Get information about the currently focused window
 fn get_focused_window_info() -> FerrousFocusResult<(String, String, Option<Vec<u32>>)> {
-    // Get the frontmost application name using AppleScript
-    let process = utils::get_frontmost_app_name().ok_or_else(|| {
+    // Get the frontmost application name using Cocoa APIs
+    let process_opt = utils::get_frontmost_app_name()?;
+    let process = process_opt.ok_or_else(|| {
         FerrousFocusError::Platform("Failed to get frontmost application name".to_string())
     })?;
 
     // Get the frontmost window title
-    let title = utils::get_frontmost_window_title()
-        .unwrap_or_else(|| format!("{} (No window title)", process));
+    let title_opt = utils::get_frontmost_window_title()?;
+    let title = title_opt.unwrap_or_else(|| format!("{} (No window title)", process));
 
     // Try to get the application icon
     let icon_data = get_app_icon(&process).ok();

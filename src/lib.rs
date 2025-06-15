@@ -13,8 +13,6 @@ mod platform;
 #[path = "windows/mod.rs"]
 mod platform;
 
-pub use platform::utils;
-
 pub use error::{FerrousFocusError, FerrousFocusResult};
 pub use focus_tracker::FocusTracker;
 pub use focused_window::{FocusedWindow, IconData};

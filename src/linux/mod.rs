@@ -1,4 +1,4 @@
-pub mod utils;
+mod utils;
 mod wayland_focus_tracker;
 mod xorg_focus_tracker;
 

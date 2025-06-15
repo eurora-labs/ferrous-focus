@@ -1,4 +1,6 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tracing::info;
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -10,7 +12,21 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-pub fn track_focus<F>(mut on_focus: F) -> FerrousFocusResult<()>
+pub fn track_focus<F>(on_focus: F) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
+{
+    run(on_focus, None)
+}
+
+pub fn track_focus_with_stop<F>(on_focus: F, stop_signal: &AtomicBool) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
+{
+    run(on_focus, Some(stop_signal))
+}
+
+fn run<F>(mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
@@ -30,21 +46,49 @@ where
         root,
         &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
     )
-    .map_err(|e| FerrousFocusError::Platform(e.to_string()));
+    .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
     conn.flush()
-        .map_err(|e| FerrousFocusError::Platform(e.to_string()));
+        .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
 
     // Track the currently focused window to monitor its title changes
     let mut current_focused_window: Option<u32> = None;
 
     // ── Event loop ─────────────────────────────────────────────────────────────
     loop {
-        let event = match conn.wait_for_event() {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("X11 error: {e}");
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                continue;
+        // Check stop signal before polling for events
+        if let Some(stop) = stop_signal {
+            if stop.load(Ordering::Acquire) {
+                break;
+            }
+        }
+
+        let event = match stop_signal {
+            Some(_) => {
+                // Use polling when stop signal is available
+                match conn.poll_for_event() {
+                    Ok(Some(e)) => e,
+                    Ok(None) => {
+                        // No event available, sleep briefly to avoid busy waiting
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
+                    Err(e) => {
+                        info!("X11 error: {e}");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        continue;
+                    }
+                }
+            }
+            None => {
+                // Use blocking wait when no stop signal
+                match conn.wait_for_event() {
+                    Ok(e) => e,
+                    Err(e) => {
+                        info!("X11 error: {e}");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        continue;
+                    }
+                }
             }
         };
 
@@ -82,7 +126,7 @@ where
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to get active window: {}", e);
+                        info!("Failed to get active window: {}", e);
                         // Continue processing other events instead of crashing
                         continue;
                     }
@@ -104,12 +148,12 @@ where
 
                 // Handle window property queries with graceful error handling
                 let title = window_name(&conn, win, net_wm_name, utf8_string).unwrap_or_else(|e| {
-                    eprintln!("Failed to get window title for window {}: {}", win, e);
+                    info!("Failed to get window title for window {}: {}", win, e);
                     "<unknown title>".to_string()
                 });
 
                 let proc = process_name(&conn, win, net_wm_pid).unwrap_or_else(|e| {
-                    eprintln!("Failed to get process name for window {}: {}", win, e);
+                    info!("Failed to get process name for window {}: {}", win, e);
                     "<unknown>".to_string()
                 });
 
@@ -128,7 +172,7 @@ where
                     window_title: Some(title),
                     icon: Some(icon),
                 }) {
-                    eprintln!("Focus event handler failed: {}", e);
+                    info!("Focus event handler failed: {}", e);
                     // Continue processing instead of propagating the error
                 }
             }
@@ -138,6 +182,8 @@ where
             FerrousFocusError::Platform(format!("Failed to flush connection: {}", e))
         })?;
     }
+
+    Ok(())
 }
 
 /* ------------------------------------------------------------ */

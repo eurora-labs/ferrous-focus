@@ -8,13 +8,9 @@ description = "Cross-platform focus tracker for Linux (X11), macOS and Windows"
 homepage = "https://github.com/eurora-labs/ferrous-focus"
 repository = "https://github.com/eurora-labs/ferrous-focus.git"
 keywords = [
-    "focus",
     "focus-tracker",
     "window-focus-tracker",
-    "window-focus",
-    "monitor",
     "desktop",
-    "window",
     "application",
     "window-manager",
 ]

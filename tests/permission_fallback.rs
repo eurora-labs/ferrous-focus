@@ -9,6 +9,8 @@ use ferrous_focus::{FerrousFocusError, FerrousFocusResult, FocusTracker, Focused
 use serial_test::serial;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[allow(unused_imports)]
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use util::*;

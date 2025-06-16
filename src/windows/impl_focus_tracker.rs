@@ -4,6 +4,7 @@ use std::time::Duration;
 use windows_sys::Win32::Foundation::HWND;
 
 use super::utils;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplFocusTracker {}

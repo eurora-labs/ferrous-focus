@@ -28,32 +28,32 @@ pub fn spawn_test_window(title: &str) -> Result<Child, Box<dyn std::error::Error
     Ok(child)
 }
 
-/// Spawn a test window with an icon
-///
-/// # Arguments
-/// * `title` - The window title to set
-/// * `icon_path` - Path to the icon file
-///
-/// # Returns
-/// A `Child` process handle for the spawned window
-pub fn spawn_test_window_with_icon(
-    title: &str,
-    icon_path: &str,
-) -> Result<Child, Box<dyn std::error::Error>> {
-    let mut cmd = Command::new("cargo");
-    cmd.args(["run", "--example", "spawn_window", "--"])
-        .args(["--title", title, "--icon", icon_path])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+// /// Spawn a test window with an icon
+// ///
+// /// # Arguments
+// /// * `title` - The window title to set
+// /// * `icon_path` - Path to the icon file
+// ///
+// /// # Returns
+// /// A `Child` process handle for the spawned window
+// pub fn spawn_test_window_with_icon(
+//     title: &str,
+//     icon_path: &str,
+// ) -> Result<Child, Box<dyn std::error::Error>> {
+//     let mut cmd = Command::new("cargo");
+//     cmd.args(&["run", "--example", "spawn_window", "--"])
+//         .args(&["--title", title, "--icon", icon_path])
+//         .stdin(Stdio::null())
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped());
 
-    let child = cmd.spawn()?;
+//     let child = cmd.spawn()?;
 
-    // Give the window time to appear
-    std::thread::sleep(Duration::from_millis(500));
+//     // Give the window time to appear
+//     std::thread::sleep(Duration::from_millis(500));
 
-    Ok(child)
-}
+//     Ok(child)
+// }
 
 /// Focus a window (platform-specific implementation)
 ///

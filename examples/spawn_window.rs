@@ -9,7 +9,6 @@ use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    platform::x11::WindowAttributesExtX11,
     window::{Window, WindowAttributes, WindowId},
 };
 
@@ -31,20 +30,14 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let mut window_attributes = WindowAttributes::default()
-            .with_title(&self.title)
-            .with_name("Example Window", "window_example");
+        let mut window_attributes = WindowAttributes::default().with_title(&self.title);
 
         // Load icon if provided
         if let Some(icon_path) = &self.icon_path {
-            match load_icon(icon_path) {
-                Ok(icon) => {
-                    info!("✓ Successfully loaded icon from: {}", icon_path);
-                    window_attributes = window_attributes.with_window_icon(Some(icon));
-                }
-                Err(e) => {
-                    info!("✗ Failed to load icon from {}: {}", icon_path, e);
-                }
+            if let Ok(icon) = load_icon(icon_path) {
+                window_attributes = window_attributes.with_window_icon(Some(icon));
+            } else {
+                info!("Warning: Failed to load icon from {}", icon_path);
             }
         }
 

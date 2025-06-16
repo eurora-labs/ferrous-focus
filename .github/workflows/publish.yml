@@ -19,6 +19,7 @@ jobs:
     publish:
         name: Publish
         runs-on: ubuntu-latest
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
         steps:
             - uses: actions/checkout@v3
 

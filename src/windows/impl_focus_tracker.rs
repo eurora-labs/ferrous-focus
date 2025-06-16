@@ -57,7 +57,7 @@ impl ImplFocusTracker {
                     window_title: Some(title.clone()),
                     icon,
                 }) {
-                    einfo!("Focus event handler failed: {}", e);
+                    info!("Focus event handler failed: {}", e);
                 }
 
                 prev_hwnd = Some(hwnd);
@@ -101,7 +101,7 @@ impl ImplFocusTracker {
                                 window_title: Some(title.clone()),
                                 icon,
                             }) {
-                                einfo!("Focus event handler failed: {}", e);
+                                info!("Focus event handler failed: {}", e);
                             }
 
                             prev_hwnd = Some(current_hwnd);
@@ -109,7 +109,7 @@ impl ImplFocusTracker {
                         }
                     }
                     Err(e) => {
-                        einfo!("Failed to get window info: {}", e);
+                        info!("Failed to get window info: {}", e);
                     }
                 }
             } else {

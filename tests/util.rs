@@ -59,6 +59,7 @@ pub fn spawn_test_window(title: &str) -> Result<Child, Box<dyn std::error::Error
 ///
 /// # Arguments
 /// * `child` - The child process handle of the window to focus
+#[allow(dead_code)]
 pub fn focus_window(child: &mut Child) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
@@ -80,6 +81,7 @@ pub fn focus_window(child: &mut Child) -> Result<(), Box<dyn std::error::Error>>
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error>> {
     use std::process::Command;
 
@@ -153,6 +155,7 @@ fn focus_window_macos(_child: &mut Child) -> Result<(), Box<dyn std::error::Erro
 ///
 /// # Returns
 /// `true` if the window was focused within the timeout, `false` otherwise
+#[allow(dead_code)]
 pub fn wait_for_focus(expected_title: &str, timeout: Duration) -> bool {
     let start = Instant::now();
 
@@ -245,6 +248,7 @@ pub fn should_use_x11() -> bool {
 }
 
 /// Setup test environment based on flags
+#[allow(dead_code)]
 pub fn setup_test_environment() -> Result<(), Box<dyn std::error::Error>> {
     if !should_run_integration_tests() {
         return Err("Integration tests disabled. Set INTEGRATION_TEST=1 to enable.".into());
@@ -266,6 +270,7 @@ pub fn setup_test_environment() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Cleanup function to terminate child processes
+#[allow(dead_code)]
 pub fn cleanup_child_process(mut child: Child) -> Result<(), Box<dyn std::error::Error>> {
     // Try to terminate gracefully first
     if child.kill().is_err() {
@@ -276,6 +281,30 @@ pub fn cleanup_child_process(mut child: Child) -> Result<(), Box<dyn std::error:
     let _ = child.wait();
 
     Ok(())
+}
+
+/// Spawn a window with a specific title (simplified interface for tests)
+#[allow(dead_code)]
+pub fn spawn_window(title: &str) -> Result<Child, Box<dyn std::error::Error>> {
+    spawn_test_window(title)
+}
+
+/// Get the currently focused window
+#[allow(dead_code)]
+pub fn get_focused_window() -> ferrous_focus::FocusedWindow {
+    get_current_focused_window().unwrap_or_else(|_| ferrous_focus::FocusedWindow {
+        process_id: None,
+        process_name: Some("unknown".to_string()),
+        window_title: Some("unknown".to_string()),
+        icon: None,
+    })
+}
+
+/// Cleanup multiple child processes
+#[allow(dead_code)]
+pub fn cleanup(win_a: Child, win_b: Child) {
+    let _ = cleanup_child_process(win_a);
+    let _ = cleanup_child_process(win_b);
 }
 
 #[cfg(test)]

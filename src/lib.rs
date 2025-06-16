@@ -19,3 +19,10 @@ pub use focused_window::{FocusedWindow, IconData};
 
 // For platform specific util API's
 pub use platform::utils;
+
+/// Subscribe to focus changes and receive them via a channel
+/// This is a convenience function that creates a new FocusTracker and subscribes to changes
+pub fn subscribe_focus_changes() -> FerrousFocusResult<std::sync::mpsc::Receiver<FocusedWindow>> {
+    let tracker = FocusTracker::new();
+    tracker.subscribe_focus_changes()
+}

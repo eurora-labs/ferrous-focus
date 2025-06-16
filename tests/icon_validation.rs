@@ -97,6 +97,17 @@ fn test_icon_format_png() {
                                                 img.height()
                                             );
                                             assert!(img.width() > 0 && img.height() > 0);
+                                            // Verify dimensions match IconData
+                                            assert_eq!(
+                                                img.width() as usize,
+                                                icon.width,
+                                                "PNG width should match IconData width"
+                                            );
+                                            assert_eq!(
+                                                img.height() as usize,
+                                                icon.height,
+                                                "PNG height should match IconData height"
+                                            );
                                         }
                                         Err(e) => {
                                             info!("Failed to decode PNG icon: {}", e);
@@ -192,17 +203,13 @@ fn test_icon_format_rgba() {
                                 icon.width, icon.height, expected_size, actual_size
                             );
 
-                            if expected_size == actual_size {
-                                info!("RGBA icon format validation passed");
-                                assert_eq!(
-                                    expected_size, actual_size,
-                                    "Icon data size should match width * height * 4 for RGBA format"
-                                );
-                            } else {
-                                info!(
-                                    "Icon data size mismatch - may not be RGBA format or may include padding"
-                                );
-                            }
+                            // Always assert for RGBA format on Linux X11
+                            assert_eq!(
+                                expected_size, actual_size,
+                                "Icon data size should match width * height * 4 for RGBA format. Expected: {} bytes, Actual: {} bytes",
+                                expected_size, actual_size
+                            );
+                            info!("RGBA icon format validation passed");
                         }
                     }
                 }
@@ -240,18 +247,24 @@ fn test_icon_diff_between_apps() {
 
     let mut icon_hashes = Vec::new();
 
-    // Test with multiple different window titles to simulate different apps
-    let test_windows = vec!["Text Editor Window", "Browser Window", "Terminal Window"];
+    // Test with two different icon files from tests/assets
+    let test_configs = vec![
+        ("Window with Icon 1", "tests/assets/icon_1.png"),
+        ("Window with Icon 2", "tests/assets/icon_2.png"),
+    ];
 
-    for window_title in test_windows {
+    for (window_title, icon_path) in test_configs {
         let focus_events = Arc::new(Mutex::new(Vec::<FocusedWindow>::new()));
         let focus_events_clone = focus_events.clone();
         let stop_signal = Arc::new(AtomicBool::new(false));
         let stop_signal_clone = stop_signal.clone();
 
-        match spawn_test_window(window_title) {
+        match spawn_test_window_with_icon(window_title, icon_path) {
             Ok(mut child) => {
-                info!("Spawned test window: {}", window_title);
+                info!(
+                    "✓ Successfully spawned test window: {} with icon: {}",
+                    window_title, icon_path
+                );
 
                 // Focus the window
                 if let Err(e) = focus_window(&mut child) {
@@ -279,14 +292,34 @@ fn test_icon_diff_between_apps() {
 
                 // Capture icon hash
                 if let Ok(events) = focus_events.lock() {
+                    info!(
+                        "Captured {} focus events for '{}'",
+                        events.len(),
+                        window_title
+                    );
                     for event in events.iter() {
+                        info!(
+                            "Event - Title: {:?}, Process: {:?}, Icon present: {}",
+                            event.window_title,
+                            event.process_name,
+                            event.icon.is_some()
+                        );
                         if let Some(icon) = &event.icon {
                             let hash = icon.hash_icon();
-                            info!("Icon hash for '{}': {}", window_title, hash);
-                            icon_hashes.push((window_title.to_string(), hash));
+                            info!("✓ Icon hash for '{}': {}", window_title, hash);
+                            icon_hashes.push((
+                                window_title.to_string(),
+                                hash,
+                                icon_path.to_string(),
+                            ));
                             break; // Only need one hash per window
                         }
                     }
+                    if events.is_empty() {
+                        info!("No focus events captured for '{}'", window_title);
+                    }
+                } else {
+                    info!("Failed to lock focus events for '{}'", window_title);
                 }
 
                 // Cleanup
@@ -298,7 +331,10 @@ fn test_icon_diff_between_apps() {
                 std::thread::sleep(Duration::from_millis(500));
             }
             Err(e) => {
-                info!("Could not spawn test window '{}': {}", window_title, e);
+                info!(
+                    "✗ Could not spawn test window '{}' with icon '{}': {}",
+                    window_title, icon_path, e
+                );
             }
         }
     }
@@ -306,29 +342,33 @@ fn test_icon_diff_between_apps() {
     // Verify that we have different hashes for different windows
     info!("Collected {} icon hashes", icon_hashes.len());
 
-    if icon_hashes.len() >= 2 {
-        // Check that hashes are different
-        for i in 0..icon_hashes.len() {
-            for j in (i + 1)..icon_hashes.len() {
-                let (title1, hash1) = &icon_hashes[i];
-                let (title2, hash2) = &icon_hashes[j];
+    // Assert that we collected at least 2 icon hashes
+    assert!(
+        icon_hashes.len() >= 2,
+        "Expected at least 2 icon hashes, but only collected {}. This indicates that icon data was not captured properly.",
+        icon_hashes.len()
+    );
 
-                if hash1 != hash2 {
-                    info!(
-                        "Icon hashes differ between '{}' and '{}': {} vs {}",
-                        title1, title2, hash1, hash2
-                    );
-                } else {
-                    info!(
-                        "Warning: Icon hashes are the same between '{}' and '{}': {}",
-                        title1, title2, hash1
-                    );
-                }
-            }
+    // Check that hashes are different - this is the critical assertion
+    for i in 0..icon_hashes.len() {
+        for j in (i + 1)..icon_hashes.len() {
+            let (title1, hash1, icon_path1) = &icon_hashes[i];
+            let (title2, hash2, icon_path2) = &icon_hashes[j];
+
+            assert_ne!(
+                hash1, hash2,
+                "Icon hashes must be different for different icon files. Found identical hashes for '{}' (icon: {}) and '{}' (icon: {}): {}. This indicates that the icons are not being differentiated properly.",
+                title1, icon_path1, title2, icon_path2, hash1
+            );
+
+            info!(
+                "✓ Icon hashes correctly differ between '{}' and '{}': {} vs {}",
+                title1, title2, hash1, hash2
+            );
         }
-    } else {
-        info!("Not enough icon hashes collected to compare differences");
     }
+
+    info!("✓ All icon hashes are distinct - test passed!");
 }
 
 /// Test the hash_icon helper function directly

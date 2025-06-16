@@ -9,6 +9,7 @@ use ferrous_focus::{FerrousFocusError, FerrousFocusResult, FocusTracker, Focused
 use serial_test::serial;
 use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
@@ -364,7 +365,7 @@ fn test_timeout_behavior() {
     let stop_signal = AtomicBool::new(false);
 
     // Set up a timeout using a separate thread that doesn't capture stop_signal
-    let timeout_handle = std::thread::spawn(|| {
+    let _timeout_handle = std::thread::spawn(|| {
         std::thread::sleep(Duration::from_millis(500));
     });
 

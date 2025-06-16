@@ -4,6 +4,7 @@ use std::time::Duration;
 use windows_sys::Win32::Foundation::HWND;
 
 use super::utils;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplFocusTracker {}
@@ -57,7 +58,7 @@ impl ImplFocusTracker {
                     window_title: Some(title.clone()),
                     icon,
                 }) {
-                    eprintln!("Focus event handler failed: {}", e);
+                    info!("Focus event handler failed: {}", e);
                 }
 
                 prev_hwnd = Some(hwnd);
@@ -101,7 +102,7 @@ impl ImplFocusTracker {
                                 window_title: Some(title.clone()),
                                 icon,
                             }) {
-                                eprintln!("Focus event handler failed: {}", e);
+                                info!("Focus event handler failed: {}", e);
                             }
 
                             prev_hwnd = Some(current_hwnd);
@@ -109,7 +110,7 @@ impl ImplFocusTracker {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to get window info: {}", e);
+                        info!("Failed to get window info: {}", e);
                     }
                 }
             } else {

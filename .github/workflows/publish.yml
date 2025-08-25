@@ -21,7 +21,7 @@ jobs:
         runs-on: ubuntu-latest
         if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
 
             - name: Install rust toolchain
               uses: dtolnay/rust-toolchain@stable

@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, RgbaImage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 use x11rb::{
@@ -167,20 +167,14 @@ where
                     "<unknown>".to_string()
                 });
 
-                let icon = get_icon_data(&conn, win, net_wm_icon)
-                    .ok()
-                    .unwrap_or_else(|| IconData {
-                        width: 0,
-                        height: 0,
-                        pixels: Vec::new(),
-                    });
+                let icon = get_icon_data(&conn, win, net_wm_icon).ok();
 
                 // ── Invoke user-supplied handler ──────────────────────────────────
                 if let Err(e) = on_focus(FocusedWindow {
                     process_id: None,
                     process_name: Some(proc),
                     window_title: Some(title),
-                    icon: Some(icon),
+                    icon,
                 }) {
                     info!("Focus event handler failed: {}", e);
                     // Continue processing instead of propagating the error
@@ -326,7 +320,7 @@ fn get_icon_data<C: Connection>(
     conn: &C,
     window: u32,
     net_wm_icon: u32,
-) -> FerrousFocusResult<IconData> {
+) -> FerrousFocusResult<RgbaImage> {
     match conn.get_property(
         false,
         window,
@@ -396,11 +390,10 @@ fn get_icon_data<C: Connection>(
                                 pixels.push(a);
                             }
 
-                            Ok(IconData {
-                                width,
-                                height,
-                                pixels,
-                            })
+                            // Create RgbaImage from the pixel data
+                            RgbaImage::from_raw(width as u32, height as u32, pixels).ok_or_else(
+                                || FerrousFocusError::Platform("Failed to create RgbaImage".into()),
+                            )
                         }
                         None => Err(FerrousFocusError::Platform(
                             "Failed to parse icon data as 32-bit values".to_string(),

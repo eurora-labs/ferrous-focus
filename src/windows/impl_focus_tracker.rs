@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, RgbaImage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::HWND;
@@ -134,8 +134,8 @@ impl ImplFocusTracker {
 /* ------------------------------------------------------------ */
 
 /// Get the icon for a window (simplified implementation)
-fn get_window_icon(_hwnd: HWND) -> FerrousFocusResult<IconData> {
-    // For now, return empty IconData as getting window icons on Windows
+fn get_window_icon(_hwnd: HWND) -> FerrousFocusResult<RgbaImage> {
+    // For now, return an error as getting window icons on Windows
     // requires more complex Win32 API calls and icon extraction
     // This could be enhanced later with proper icon extraction
 
@@ -143,19 +143,15 @@ fn get_window_icon(_hwnd: HWND) -> FerrousFocusResult<IconData> {
     // 1. Get the window's class icon or application icon
     // 2. Extract the icon data
     // 3. Convert to RGBA format
-    // 4. Return as IconData
+    // 4. Return as RgbaImage
 
-    // For the initial implementation, we'll return empty IconData
+    // For the initial implementation, we'll return an error
     // which matches the behavior when icon extraction fails in other platforms
-    Ok(IconData {
-        width: 0,
-        height: 0,
-        pixels: Vec::new(),
-    })
+    Err(FerrousFocusError::Unsupported)
 }
 
-/// Convert ARGB icon data to IconData (placeholder for future implementation)
-fn _convert_icon_to_icon_data(icon_data: &[u32]) -> FerrousFocusResult<IconData> {
+/// Convert ARGB icon data to RgbaImage (placeholder for future implementation)
+fn _convert_icon_to_rgba_image(icon_data: &[u32]) -> FerrousFocusResult<RgbaImage> {
     if icon_data.len() < 2 {
         return Err(FerrousFocusError::Platform("Invalid icon data".to_string()));
     }
@@ -194,9 +190,7 @@ fn _convert_icon_to_icon_data(icon_data: &[u32]) -> FerrousFocusResult<IconData>
         }
     }
 
-    Ok(IconData {
-        width,
-        height,
-        pixels,
-    })
+    // Create RgbaImage from the pixel data
+    RgbaImage::from_raw(width as u32, height as u32, pixels)
+        .ok_or_else(|| FerrousFocusError::Platform("Failed to create RgbaImage".into()))
 }

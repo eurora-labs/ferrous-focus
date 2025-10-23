@@ -5,7 +5,7 @@
 
 mod util;
 
-use ferrous_focus::{FocusTracker, FocusedWindow, IconData};
+use ferrous_focus::{FocusTracker, FocusedWindow, IconExt, RgbaImage};
 use fxhash::FxHasher;
 use serial_test::serial;
 use std::hash::{Hash, Hasher};
@@ -195,12 +195,13 @@ fn test_icon_format_rgba() {
                         if let Some(icon) = &event.icon {
                             // For X11 _NET_WM_ICON, we expect RGBA format
                             // Assert width * height * 4 == data.len()
-                            let expected_size = icon.width * icon.height * 4;
-                            let actual_size = icon.pixels.len();
+                            let (width, height) = icon.dimensions();
+                            let expected_size = (width * height * 4) as usize;
+                            let actual_size = icon.as_raw().len();
 
                             info!(
                                 "Icon dimensions: {}x{}, expected size: {}, actual size: {}",
-                                icon.width, icon.height, expected_size, actual_size
+                                width, height, expected_size, actual_size
                             );
 
                             // Always assert for RGBA format on Linux X11
@@ -342,23 +343,14 @@ fn test_icon_diff_between_apps() {
 #[test]
 fn test_hash_icon_helper() {
     // Create test icon data
-    let icon1 = IconData {
-        width: 32,
-        height: 32,
-        pixels: vec![255u8; 32 * 32 * 4], // All white pixels
-    };
+    let icon1 = RgbaImage::from_raw(32, 32, vec![255u8; 32 * 32 * 4]) // All white pixels
+        .expect("Failed to create test image");
 
-    let icon2 = IconData {
-        width: 32,
-        height: 32,
-        pixels: vec![0u8; 32 * 32 * 4], // All black pixels
-    };
+    let icon2 = RgbaImage::from_raw(32, 32, vec![0u8; 32 * 32 * 4]) // All black pixels
+        .expect("Failed to create test image");
 
-    let icon3 = IconData {
-        width: 16, // Different dimensions
-        height: 16,
-        pixels: vec![255u8; 16 * 16 * 4],
-    };
+    let icon3 = RgbaImage::from_raw(16, 16, vec![255u8; 16 * 16 * 4]) // Different dimensions
+        .expect("Failed to create test image");
 
     // Test that different icons have different hashes
     let hash1 = icon1.hash_icon();
@@ -391,13 +383,9 @@ fn test_hash_icon_helper() {
 #[test]
 fn test_as_bytes_helper() {
     let test_pixels = vec![255u8, 0u8, 128u8, 64u8];
-    let icon = IconData {
-        width: 1,
-        height: 1,
-        pixels: test_pixels.clone(),
-    };
+    let icon = RgbaImage::from_raw(1, 1, test_pixels.clone()).expect("Failed to create test image");
 
-    let bytes = icon.as_bytes();
+    let bytes = icon.as_raw();
     assert_eq!(
         bytes, &test_pixels,
         "as_bytes should return reference to pixel data"

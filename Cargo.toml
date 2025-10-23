@@ -1,8 +1,8 @@
 [package]
 name = "ferrous-focus"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2024"
-authors = ["Europa Labs <contact@eurora-labs.com>"]
+authors = ["Eurora Labs <contact@eurora-labs.com>"]
 license = "Apache-2.0"
 description = "Cross-platform focus tracker for Linux (X11), macOS and Windows"
 homepage = "https://github.com/eurora-labs/ferrous-focus"
@@ -23,6 +23,7 @@ resolver = "2"
 thiserror = "2.0.12"
 tracing = "0.1.41"
 fxhash = "0.2.1"
+image = "0.25.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13.1"
@@ -48,6 +49,5 @@ windows-sys = { version = "0.60.2", features = [
 [dev-dependencies]
 tracing-subscriber = "0.3.19"
 serial_test = "3.1.1"
-image = "0.25.2"
 winit = "0.30.5"
 ctrlc = "3.4.5"

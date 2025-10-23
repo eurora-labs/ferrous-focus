@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use swayipc::{Connection, Event, EventType, WindowChange};
@@ -175,10 +175,6 @@ fn get_focused_window_from_event(
         process_id,
         process_name,
         window_title,
-        icon: Some(IconData {
-            width: 0,
-            height: 0,
-            pixels: Vec::new(),
-        }),
+        icon: None, // Wayland doesn't provide icon data through sway IPC
     })
 }

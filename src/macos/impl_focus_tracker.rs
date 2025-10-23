@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, RgbaImage};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -65,9 +65,9 @@ impl ImplFocusTracker {
                     if focus_changed {
                         info!("Focus changed: {} - {}", process, title);
 
-                        // Convert icon data to IconData if available
+                        // Convert icon data to RgbaImage if available
                         let icon = match icon_data {
-                            Some(data) => match convert_icon_to_icon_data(&data) {
+                            Some(data) => match convert_icon_to_rgba_image(&data) {
                                 Ok(icon_data) => Some(icon_data),
                                 Err(e) => {
                                     info!("Failed to convert icon data: {}", e);
@@ -202,8 +202,8 @@ fn get_app_icon(process_name: &str) -> FerrousFocusResult<Vec<u32>> {
     Ok(vec![32, 32]) // Just width and height, no actual pixel data
 }
 
-/// Convert ARGB icon data to IconData
-fn convert_icon_to_icon_data(icon_data: &[u32]) -> FerrousFocusResult<IconData> {
+/// Convert ARGB icon data to RgbaImage
+fn convert_icon_to_rgba_image(icon_data: &[u32]) -> FerrousFocusResult<RgbaImage> {
     if icon_data.len() < 2 {
         return Err(FerrousFocusError::Platform("Invalid icon data".to_string()));
     }
@@ -242,9 +242,7 @@ fn convert_icon_to_icon_data(icon_data: &[u32]) -> FerrousFocusResult<IconData> 
         }
     }
 
-    Ok(IconData {
-        width,
-        height,
-        pixels,
-    })
+    // Create RgbaImage from the pixel data
+    RgbaImage::from_raw(width as u32, height as u32, pixels)
+        .ok_or_else(|| FerrousFocusError::Platform("Failed to create RgbaImage".into()))
 }

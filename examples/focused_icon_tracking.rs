@@ -7,29 +7,22 @@
 //!
 //! Usage: cargo run --example focused_icon_display_simple
 
-use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow, IconData};
+use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow, RgbaImage};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 
 fn save_icon_to_file(
-    icon_data: &IconData,
+    icon_data: &RgbaImage,
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if icon_data.pixels.is_empty() || icon_data.width == 0 || icon_data.height == 0 {
+    let (width, height) = icon_data.dimensions();
+    if width == 0 || height == 0 {
         return Err("Invalid icon data".into());
     }
 
-    // Create an image buffer from the icon data
-    let img = image::RgbaImage::from_raw(
-        icon_data.width as u32,
-        icon_data.height as u32,
-        icon_data.pixels.clone(),
-    )
-    .ok_or("Failed to create image from icon data")?;
-
-    // Save as PNG
-    img.save(filename)?;
+    // Save as PNG - RgbaImage can be saved directly
+    icon_data.save(filename)?;
     info!("Saved icon to: {}", filename);
     Ok(())
 }
@@ -66,10 +59,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Handle the icon
-            if let Some(icon) = window.icon {
-                info!("  Icon: {}x{} pixels", icon.width, icon.height);
+            if let Some(ref icon) = window.icon {
+                let (width, height) = icon.dimensions();
+                info!("  Icon: {}x{} pixels", width, height);
 
-                if icon.width > 0 && icon.height > 0 && !icon.pixels.is_empty() {
+                if width > 0 && height > 0 {
                     icon_counter += 1;
                     let filename = format!("examples/recorded_icons/icon_{:03}.png", icon_counter);
 

@@ -7,26 +7,18 @@
 //!
 //! Usage: cargo run --example focused_icon_display_simple
 
-use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow, IconData};
+use base64::prelude::*;
+use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 
 fn save_icon_to_file(
-    icon_data: &IconData,
+    icon_data: &Vec<u8>,
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if icon_data.pixels.is_empty() || icon_data.width == 0 || icon_data.height == 0 {
-        return Err("Invalid icon data".into());
-    }
-
-    // Create an image buffer from the icon data
-    let img = image::RgbaImage::from_raw(
-        icon_data.width as u32,
-        icon_data.height as u32,
-        icon_data.pixels.clone(),
-    )
-    .ok_or("Failed to create image from icon data")?;
+    let b64 = BASE64_STANDARD.decode(icon_data)?;
+    let img = image::load_from_memory(&b64)?.to_rgba8();
 
     // Save as PNG
     img.save(filename)?;
@@ -67,22 +59,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Handle the icon
             if let Some(icon) = window.icon {
-                info!("  Icon: {}x{} pixels", icon.width, icon.height);
+                icon_counter += 1;
+                let filename = format!("examples/recorded_icons/icon_{icon_counter:03}.png");
 
-                if icon.width > 0 && icon.height > 0 && !icon.pixels.is_empty() {
-                    icon_counter += 1;
-                    let filename = format!("examples/recorded_icons/icon_{icon_counter:03}.png");
-
-                    match save_icon_to_file(&icon, &filename) {
-                        Ok(_) => {
-                            info!("  ✓ Icon saved successfully as {}", filename);
-                        }
-                        Err(e) => {
-                            info!("  ✗ Failed to save icon: {}", e);
-                        }
+                match save_icon_to_file(&icon, &filename) {
+                    Ok(_) => {
+                        info!("  ✓ Icon saved successfully as {}", filename);
                     }
-                } else {
-                    info!("  ✗ Icon data is empty or invalid");
+                    Err(e) => {
+                        info!("  ✗ Failed to save icon: {}", e);
+                    }
                 }
             } else {
                 info!("  ✗ No icon available");

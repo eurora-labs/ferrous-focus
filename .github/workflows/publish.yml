@@ -21,7 +21,7 @@ jobs:
         runs-on: ubuntu-latest
         if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v5
 
             - name: Install rust toolchain
               uses: dtolnay/rust-toolchain@stable
@@ -35,7 +35,7 @@ jobs:
               run: cargo publish --all-features
 
             - name: Release drafter
-              uses: release-drafter/release-drafter@v5
+              uses: release-drafter/release-drafter@v6
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:

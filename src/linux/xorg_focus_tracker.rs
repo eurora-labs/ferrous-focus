@@ -66,10 +66,10 @@ where
     // ── Event loop ─────────────────────────────────────────────────────────────
     loop {
         // Check stop signal before polling for events
-        if let Some(stop) = stop_signal {
-            if stop.load(Ordering::Acquire) {
-                break;
-            }
+        if let Some(stop) = stop_signal
+            && stop.load(Ordering::Acquire)
+        {
+            break;
         }
 
         let event = match stop_signal {

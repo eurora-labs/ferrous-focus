@@ -48,32 +48,32 @@ impl ImplFocusTracker {
         let mut prev_title: Option<String> = None;
 
         // Get initial focused window
-        if let Some(hwnd) = utils::get_foreground_window() {
-            if let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) } {
-                let icon = get_window_icon(hwnd).ok();
-                let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
-                if let Err(e) = on_focus(FocusedWindow {
-                    process_id: Some(process_id),
-                    process_name: Some(process.clone()),
-                    window_title: Some(title.clone()),
-                    icon,
-                }) {
-                    info!("Focus event handler failed: {}", e);
-                }
-
-                prev_hwnd = Some(hwnd);
-                prev_title = Some(title);
+        if let Some(hwnd) = utils::get_foreground_window()
+            && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
+        {
+            let icon = get_window_icon(hwnd).ok();
+            let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
+            if let Err(e) = on_focus(FocusedWindow {
+                process_id: Some(process_id),
+                process_name: Some(process.clone()),
+                window_title: Some(title.clone()),
+                icon,
+            }) {
+                info!("Focus event handler failed: {}", e);
             }
+
+            prev_hwnd = Some(hwnd);
+            prev_title = Some(title);
         }
 
         // Main event loop - we'll use polling since Windows event hooks are complex to integrate
         // with Rust's async runtime in a cross-platform way
         loop {
             // Check stop signal before processing
-            if let Some(stop) = stop_signal {
-                if stop.load(Ordering::Relaxed) {
-                    break;
-                }
+            if let Some(stop) = stop_signal
+                && stop.load(Ordering::Relaxed)
+            {
+                break;
             }
 
             // Check current foreground window

@@ -46,8 +46,8 @@ unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<(String, u32, 
                 set windowTitle to ""
             end try
         end tell
-
-        return frontAppName & "|" & frontAppPID & "|" & windowTitle
+        set NUL to (ASCII character 0)
+        return frontAppName & NUL & frontAppPID & NUL & windowTitle
     end tell
     "#;
 
@@ -76,30 +76,32 @@ unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<(String, u32, 
             "Failed to get window info via AppleScript".to_string(),
         ));
     }
+    let mut bytes = output.stdout;
+    while matches!(bytes.last(), Some(b'\n' | b'\r')) {
+        bytes.pop();
+    }
 
-    parse_applescript_output(&output.stdout)
+    parse_applescript_output(&bytes)
 }
 
 /// Parse the AppleScript output into structured data.
-fn parse_applescript_output(stdout: &[u8]) -> FerrousFocusResult<(String, u32, String)> {
-    let output_str = String::from_utf8_lossy(stdout).trim().to_string();
-    let parts: Vec<&str> = output_str.split('|').collect();
-
-    if parts.len() < 3 {
-        return Err(crate::error::FerrousFocusError::Platform(
-            "Invalid AppleScript output format".to_string(),
-        ));
-    }
-
-    let app_name = parts[0].to_string();
-    let process_id = parts[1].parse::<u32>().map_err(|_| {
-        crate::error::FerrousFocusError::Platform("Failed to parse process ID".to_string())
+fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<(String, u32, String)> {
+    let mut parts = bytes.split(|&b| b == 0);
+    let app_name = String::from_utf8(parts.next().unwrap_or_default().to_vec()).map_err(|_| {
+        crate::error::FerrousFocusError::Platform("Failed to parse app name".to_string())
     })?;
-    let window_title = if parts[2].is_empty() {
-        format!("{} (No window title)", app_name)
-    } else {
-        parts[2].to_string()
-    };
+    let pid: u32 = String::from_utf8(parts.next().unwrap_or_default().to_vec())
+        .map_err(|_| {
+            crate::error::FerrousFocusError::Platform("Failed to parse process ID".to_string())
+        })?
+        .parse()
+        .map_err(|_| {
+            crate::error::FerrousFocusError::Platform("Failed to parse process ID".to_string())
+        })?;
+    let window_title =
+        String::from_utf8(parts.next().unwrap_or_default().to_vec()).map_err(|_| {
+            crate::error::FerrousFocusError::Platform("Failed to parse window title".to_string())
+        })?;
 
-    Ok((app_name, process_id, window_title))
+    Ok((app_name, pid, window_title))
 }

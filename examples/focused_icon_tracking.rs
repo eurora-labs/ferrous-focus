@@ -7,18 +7,16 @@
 //!
 //! Usage: cargo run --example focused_icon_display_simple
 
-use base64::prelude::*;
 use ferrous_focus::{FerrousFocusResult, FocusTracker, FocusedWindow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 
 fn save_icon_to_file(
-    icon_data: &Vec<u8>,
+    icon_data: &image::RgbaImage,
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let b64 = BASE64_STANDARD.decode(icon_data)?;
-    let img = image::load_from_memory(&b64)?.to_rgba8();
+    let img = icon_data;
 
     // Save as PNG
     img.save(filename)?;

@@ -1,8 +1,3 @@
-//! Shared types for the cross‑platform focus tracker crate.
-use core::fmt;
-use fxhash::FxHasher;
-use std::hash::{Hash, Hasher};
-
 /// Snapshot of the currently focused window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FocusedWindow {
@@ -13,5 +8,5 @@ pub struct FocusedWindow {
     /// Full window title/caption as provided by the OS.
     pub window_title: Option<String>,
     /// Raw icon data (may be `None` if not retrievable on the platform).
-    pub icon: Option<Vec<u8>>,
+    pub icon: Option<image::RgbaImage>,
 }

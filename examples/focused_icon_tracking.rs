@@ -65,9 +65,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 if width > 0 && height > 0 {
                     icon_counter += 1;
-                    let filename = format!("examples/recorded_icons/icon_{:03}.png", icon_counter);
+                    let filename = format!("examples/recorded_icons/icon_{icon_counter:03}.png");
 
-                    match save_icon_to_file(&icon, &filename) {
+                    match save_icon_to_file(icon, &filename) {
                         Ok(_) => {
                             info!("  ✓ Icon saved successfully as {}", filename);
                         }

@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 if icon.width > 0 && icon.height > 0 && !icon.pixels.is_empty() {
                     icon_counter += 1;
-                    let filename = format!("examples/recorded_icons/icon_{:03}.png", icon_counter);
+                    let filename = format!("examples/recorded_icons/icon_{icon_counter:03}.png");
 
                     match save_icon_to_file(&icon, &filename) {
                         Ok(_) => {

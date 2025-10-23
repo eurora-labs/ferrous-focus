@@ -206,8 +206,7 @@ fn test_icon_format_rgba() {
                             // Always assert for RGBA format on Linux X11
                             assert_eq!(
                                 expected_size, actual_size,
-                                "Icon data size should match width * height * 4 for RGBA format. Expected: {} bytes, Actual: {} bytes",
-                                expected_size, actual_size
+                                "Icon data size should match width * height * 4 for RGBA format. Expected: {expected_size} bytes, Actual: {actual_size} bytes",
                             );
                             info!("RGBA icon format validation passed");
                         }

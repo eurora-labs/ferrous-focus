@@ -25,7 +25,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferrous-focus = "0.2.4"
+ferrous-focus = "0.2.6"
 ```
 
 ## Quick Start
@@ -291,12 +291,3 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Changelog
-
-### Version 0.2.4
-
--   Cross-platform focus tracking support
--   Icon extraction capabilities
--   Event subscription API
--   Comprehensive platform support for Linux, macOS, and Windows

@@ -1,4 +1,5 @@
 use crate::{FocusedWindow, error::FerrousFocusResult};
+use base64::prelude::*;
 use objc2_app_kit::NSWorkspace;
 use std::process::Command;
 
@@ -120,13 +121,19 @@ fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<FocusedWindow> {
             crate::error::FerrousFocusError::Platform("Failed to parse window title".to_string())
         })?;
 
-    let b64 = parts.next().unwrap_or_default().to_vec();
+    let icon_data = parts.next().unwrap_or_default().to_vec();
+    let b64 = BASE64_STANDARD.decode(icon_data).map_err(|_| {
+        crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string())
+    })?;
+    let image = image::load_from_memory(&b64)
+        .map_err(|_| crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string()))?
+        .to_rgba8();
 
     Ok(FocusedWindow {
         process_id: Some(pid),
         window_title: Some(window_title),
         process_name: Some(app_name),
         // icon: None,
-        icon: Some(b64),
+        icon: Some(image),
     })
 }

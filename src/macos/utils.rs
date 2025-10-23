@@ -5,6 +5,7 @@ use std::process::Command;
 /// Get all information about the frontmost window in a single atomic operation.
 /// Returns: (app_name, process_id, window_title)
 pub fn get_frontmost_window_info() -> FerrousFocusResult<(String, u32, String)> {
+    #[allow(unused_unsafe)]
     unsafe {
         // Get PID and window title from AppleScript
         let (process_name, process_id, window_title) = get_window_info_via_applescript()?;
@@ -19,6 +20,7 @@ pub fn get_frontmost_window_info() -> FerrousFocusResult<(String, u32, String)> 
 
 /// Get the localized application name for a given process ID.
 fn get_localized_app_name(process_id: u32) -> Option<String> {
+    #[allow(unused_unsafe)]
     unsafe {
         let workspace = NSWorkspace::sharedWorkspace();
         let running_apps = workspace.runningApplications();

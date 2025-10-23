@@ -66,10 +66,10 @@ where
     // ── Event loop ─────────────────────────────────────────────────────────────
     loop {
         // Check stop signal before polling for events
-        if let Some(stop) = stop_signal {
-            if stop.load(Ordering::Acquire) {
-                break;
-            }
+        if let Some(stop) = stop_signal
+            && stop.load(Ordering::Acquire)
+        {
+            break;
         }
 
         let event = match stop_signal {
@@ -188,9 +188,8 @@ where
             }
         }
 
-        conn.flush().map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to flush connection: {}", e))
-        })?;
+        conn.flush()
+            .map_err(|e| FerrousFocusError::Platform(format!("Failed to flush connection: {e}")))?;
     }
 
     Ok(())
@@ -218,13 +217,11 @@ fn active_window<C: Connection>(
         Ok(cookie) => match cookie.reply() {
             Ok(reply) => Ok(reply.value32().and_then(|mut v| v.next())),
             Err(err) => Err(FerrousFocusError::Platform(format!(
-                "Failed to get active window: {}",
-                err
+                "Failed to get active window: {err}",
             ))),
         },
         Err(err) => Err(FerrousFocusError::Platform(format!(
-            "Failed to get active window: {}",
-            err
+            "Failed to get active window: {err}",
         ))),
     }
 }
@@ -256,25 +253,21 @@ fn window_name<C: Connection>(
                         Ok(cookie) => match cookie.reply() {
                             Ok(reply) => Ok(String::from_utf8_lossy(&reply.value).into_owned()),
                             Err(err) => Err(FerrousFocusError::Platform(format!(
-                                "Failed to get window name: {}",
-                                err
+                                "Failed to get window name: {err}",
                             ))),
                         },
                         Err(err) => Err(FerrousFocusError::Platform(format!(
-                            "Failed to get window name: {}",
-                            err
+                            "Failed to get window name: {err}",
                         ))),
                     }
                 }
                 Err(err) => Err(FerrousFocusError::Platform(format!(
-                    "Failed to get window name: {}",
-                    err
+                    "Failed to get window name: {err}",
                 ))),
             }
         }
         Err(err) => Err(FerrousFocusError::Platform(format!(
-            "Failed to get window name: {}",
-            err
+            "Failed to get window name: {err}",
         ))),
     }
 }
@@ -297,15 +290,13 @@ fn process_name<C: Connection>(
             },
             Err(err) => {
                 return Err(FerrousFocusError::Platform(format!(
-                    "Failed to get PID: {}",
-                    err
+                    "Failed to get PID: {err}",
                 )));
             }
         },
         Err(err) => {
             return Err(FerrousFocusError::Platform(format!(
-                "Failed to get PID: {}",
-                err
+                "Failed to get PID: {err}",
             )));
         }
     };
@@ -316,8 +307,7 @@ fn process_name<C: Connection>(
     }) {
         Ok(name) => Ok(name.trim_end_matches('\n').to_owned()),
         Err(err) => Err(FerrousFocusError::Platform(format!(
-            "Failed to get process name: {}",
-            err
+            "Failed to get process name: {err}",
         ))),
     }
 }
@@ -371,8 +361,7 @@ fn get_icon_data<C: Connection>(
 
                             if available_pixels < expected_pixels {
                                 return Err(FerrousFocusError::Platform(format!(
-                                    "Insufficient pixel data: expected {}, got {}",
-                                    expected_pixels, available_pixels
+                                    "Insufficient pixel data: expected {expected_pixels}, got {available_pixels}",
                                 )));
                             }
 
@@ -408,14 +397,12 @@ fn get_icon_data<C: Connection>(
                     }
                 }
                 Err(err) => Err(FerrousFocusError::Platform(format!(
-                    "Failed to get icon property: {}",
-                    err
+                    "Failed to get icon property: {err}",
                 ))),
             }
         }
         Err(err) => Err(FerrousFocusError::Platform(format!(
-            "Failed to request icon property: {}",
-            err
+            "Failed to request icon property: {err}",
         ))),
     }
 }

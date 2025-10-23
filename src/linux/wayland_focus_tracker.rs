@@ -22,11 +22,11 @@ where
     loop {
         // Connect to swayipc and subscribe to window events
         let connection = Connection::new().map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
+            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {e}"))
         })?;
 
         let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
+            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {e}"))
         })?;
 
         // Process events as they arrive
@@ -47,7 +47,7 @@ where
                                 }
                             }
                             Err(e) => {
-                                info!("Failed to get focused window from event: {}", e);
+                                info!("Failed to get focused window from event: {e}");
                             }
                         }
                     }
@@ -56,7 +56,7 @@ where
                     // Ignore other event types
                 }
                 Err(e) => {
-                    info!("Error receiving window event: {}", e);
+                    info!("Error receiving window event: {e}");
                     info!("Attempting to reconnect to sway IPC...");
                     should_reconnect = true;
                     break;
@@ -99,11 +99,11 @@ where
 
         // Connect to swayipc and subscribe to window events
         let connection = Connection::new().map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {}", e))
+            FerrousFocusError::Platform(format!("Failed to connect to sway IPC: {e}"))
         })?;
 
         let event_iterator = connection.subscribe([EventType::Window]).map_err(|e| {
-            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {}", e))
+            FerrousFocusError::Platform(format!("Failed to subscribe to window events: {e}"))
         })?;
 
         // Process events as they arrive

@@ -5,10 +5,8 @@
 
 mod util;
 
-use ferrous_focus::{FocusTracker, FocusedWindow, IconData};
-use fxhash::FxHasher;
+use ferrous_focus::{FocusTracker, FocusedWindow};
 use serial_test::serial;
-use std::hash::{Hash, Hasher};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -16,13 +14,6 @@ use std::sync::{
 use std::time::Duration;
 use tracing::info;
 use util::*;
-
-/// Helper function to hash icon bytes using FxHasher
-fn hash_icon_bytes(bytes: &[u8]) -> u64 {
-    let mut hasher = FxHasher::default();
-    bytes.hash(&mut hasher);
-    hasher.finish()
-}
 
 /// Test that PNG format icons have correct PNG header and can be decoded
 #[test]
@@ -195,12 +186,15 @@ fn test_icon_format_rgba() {
                         if let Some(icon) = &event.icon {
                             // For X11 _NET_WM_ICON, we expect RGBA format
                             // Assert width * height * 4 == data.len()
-                            let expected_size = icon.width * icon.height * 4;
-                            let actual_size = icon.pixels.len();
+                            let expected_size = icon.width() * icon.height() * 4;
+                            let actual_size = icon.pixels().len() as u32;
 
                             info!(
                                 "Icon dimensions: {}x{}, expected size: {}, actual size: {}",
-                                icon.width, icon.height, expected_size, actual_size
+                                icon.width(),
+                                icon.height(),
+                                expected_size,
+                                actual_size
                             );
 
                             // Always assert for RGBA format on Linux X11
@@ -244,8 +238,6 @@ fn test_icon_diff_between_apps() {
         return;
     }
 
-    let mut icon_hashes = Vec::new();
-
     // Test with multiple different window titles to simulate different apps
     let test_windows = vec!["Text Editor Window", "Browser Window", "Terminal Window"];
 
@@ -283,18 +275,6 @@ fn test_icon_diff_between_apps() {
                 stop_signal.store(true, Ordering::Relaxed);
                 let _ = tracker_handle.join();
 
-                // Capture icon hash
-                if let Ok(events) = focus_events.lock() {
-                    for event in events.iter() {
-                        if let Some(icon) = &event.icon {
-                            let hash = icon.hash_icon();
-                            info!("Icon hash for '{}': {}", window_title, hash);
-                            icon_hashes.push((window_title.to_string(), hash));
-                            break; // Only need one hash per window
-                        }
-                    }
-                }
-
                 // Cleanup
                 if let Err(e) = cleanup_child_process(child) {
                     info!("Warning: Failed to cleanup child process: {}", e);
@@ -308,102 +288,4 @@ fn test_icon_diff_between_apps() {
             }
         }
     }
-
-    // Verify that we have different hashes for different windows
-    info!("Collected {} icon hashes", icon_hashes.len());
-
-    if icon_hashes.len() >= 2 {
-        // Check that hashes are different
-        for i in 0..icon_hashes.len() {
-            for j in (i + 1)..icon_hashes.len() {
-                let (title1, hash1) = &icon_hashes[i];
-                let (title2, hash2) = &icon_hashes[j];
-
-                if hash1 != hash2 {
-                    info!(
-                        "Icon hashes differ between '{}' and '{}': {} vs {}",
-                        title1, title2, hash1, hash2
-                    );
-                } else {
-                    info!(
-                        "Warning: Icon hashes are the same between '{}' and '{}': {}",
-                        title1, title2, hash1
-                    );
-                }
-            }
-        }
-    } else {
-        info!("Not enough icon hashes collected to compare differences");
-    }
-}
-
-/// Test the hash_icon helper function directly
-#[test]
-fn test_hash_icon_helper() {
-    // Create test icon data
-    let icon1 = IconData {
-        width: 32,
-        height: 32,
-        pixels: vec![255u8; 32 * 32 * 4], // All white pixels
-    };
-
-    let icon2 = IconData {
-        width: 32,
-        height: 32,
-        pixels: vec![0u8; 32 * 32 * 4], // All black pixels
-    };
-
-    let icon3 = IconData {
-        width: 16, // Different dimensions
-        height: 16,
-        pixels: vec![255u8; 16 * 16 * 4],
-    };
-
-    // Test that different icons have different hashes
-    let hash1 = icon1.hash_icon();
-    let hash2 = icon2.hash_icon();
-    let hash3 = icon3.hash_icon();
-
-    info!("Hash 1 (32x32 white): {}", hash1);
-    info!("Hash 2 (32x32 black): {}", hash2);
-    info!("Hash 3 (16x16 white): {}", hash3);
-
-    assert_ne!(
-        hash1, hash2,
-        "Different pixel data should produce different hashes"
-    );
-    assert_ne!(
-        hash1, hash3,
-        "Different dimensions should produce different hashes"
-    );
-    assert_ne!(
-        hash2, hash3,
-        "Different dimensions and pixels should produce different hashes"
-    );
-
-    // Test that same icon produces same hash
-    let hash1_again = icon1.hash_icon();
-    assert_eq!(hash1, hash1_again, "Same icon should produce same hash");
-}
-
-/// Test the as_bytes helper function
-#[test]
-fn test_as_bytes_helper() {
-    let test_pixels = vec![255u8, 0u8, 128u8, 64u8];
-    let icon = IconData {
-        width: 1,
-        height: 1,
-        pixels: test_pixels.clone(),
-    };
-
-    let bytes = icon.as_bytes();
-    assert_eq!(
-        bytes, &test_pixels,
-        "as_bytes should return reference to pixel data"
-    );
-
-    // Test that we can hash the bytes
-    let hash = hash_icon_bytes(bytes);
-    info!("Hash of test bytes: {}", hash);
-    assert!(hash != 0, "Hash should not be zero for non-empty data");
 }

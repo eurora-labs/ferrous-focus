@@ -406,8 +406,8 @@ fn get_icon_data<C: Connection>(
         ));
     }
 
-    let width = values[0] as u32;
-    let height = values[1] as u32;
+    let width = values[0];
+    let height = values[1];
 
     if width == 0 || height == 0 {
         return Err(FerrousFocusError::Platform(

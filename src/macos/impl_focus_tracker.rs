@@ -1,12 +1,8 @@
-use crate::{FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use tracing::debug;
 
 use super::utils;
-
-/// Polling interval for focus change detection (in milliseconds).
-const POLL_INTERVAL_MS: u64 = 200;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplFocusTracker {}
@@ -18,25 +14,31 @@ impl ImplFocusTracker {
 }
 
 impl ImplFocusTracker {
-    pub fn track_focus<F>(&self, on_focus: F) -> FerrousFocusResult<()>
+    pub fn track_focus<F>(&self, on_focus: F, config: &FocusTrackerConfig) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, None)
+        self.run(on_focus, None, config)
     }
 
     pub fn track_focus_with_stop<F>(
         &self,
         on_focus: F,
         stop_signal: &AtomicBool,
+        config: &FocusTrackerConfig,
     ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, Some(stop_signal))
+        self.run(on_focus, Some(stop_signal), config)
     }
 
-    fn run<F>(&self, mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
+    fn run<F>(
+        &self,
+        mut on_focus: F,
+        stop_signal: Option<&AtomicBool>,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
@@ -66,7 +68,7 @@ impl ImplFocusTracker {
                 }
             }
 
-            std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+            std::thread::sleep(config.poll_interval);
         }
 
         Ok(())

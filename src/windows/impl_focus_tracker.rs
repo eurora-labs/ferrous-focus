@@ -1,6 +1,5 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::{HWND, WPARAM},
     Graphics::Gdi::{
@@ -25,25 +24,31 @@ impl ImplFocusTracker {
 }
 
 impl ImplFocusTracker {
-    pub fn track_focus<F>(&self, on_focus: F) -> FerrousFocusResult<()>
+    pub fn track_focus<F>(&self, on_focus: F, config: &FocusTrackerConfig) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, None)
+        self.run(on_focus, None, config)
     }
 
     pub fn track_focus_with_stop<F>(
         &self,
         on_focus: F,
         stop_signal: &AtomicBool,
+        config: &FocusTrackerConfig,
     ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, Some(stop_signal))
+        self.run(on_focus, Some(stop_signal), config)
     }
 
-    fn run<F>(&self, mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
+    fn run<F>(
+        &self,
+        mut on_focus: F,
+        stop_signal: Option<&AtomicBool>,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
@@ -131,7 +136,7 @@ impl ImplFocusTracker {
             }
 
             // Sleep to avoid high CPU usage
-            std::thread::sleep(Duration::from_millis(250));
+            std::thread::sleep(config.poll_interval);
         }
 
         Ok(())

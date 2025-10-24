@@ -1,3 +1,4 @@
+mod config;
 mod error;
 mod focus_tracker;
 mod focused_window;
@@ -13,6 +14,7 @@ mod platform;
 #[path = "windows/mod.rs"]
 mod platform;
 
+pub use config::FocusTrackerConfig;
 pub use error::{FerrousFocusError, FerrousFocusResult};
 pub use focus_tracker::FocusTracker;
 pub use focused_window::FocusedWindow;
@@ -21,7 +23,7 @@ pub use focused_window::FocusedWindow;
 pub use platform::utils;
 
 /// Subscribe to focus changes and receive them via a channel
-/// This is a convenience function that creates a new FocusTracker and subscribes to changes
+/// This is a convenience function that creates a new FocusTracker with default config and subscribes to changes
 pub fn subscribe_focus_changes() -> FerrousFocusResult<std::sync::mpsc::Receiver<FocusedWindow>> {
     let tracker = FocusTracker::new();
     tracker.subscribe_focus_changes()

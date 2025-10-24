@@ -1,15 +1,24 @@
-use crate::{FerrousFocusResult, FocusedWindow, platform::impl_focus_tracker::ImplFocusTracker};
+use crate::{
+    FerrousFocusResult, FocusTrackerConfig, FocusedWindow,
+    platform::impl_focus_tracker::ImplFocusTracker,
+};
 use std::sync::{atomic::AtomicBool, mpsc};
 
 #[derive(Debug, Clone)]
 pub struct FocusTracker {
     impl_focus_tracker: ImplFocusTracker,
+    config: FocusTrackerConfig,
 }
 
 impl FocusTracker {
     pub fn new() -> Self {
+        Self::with_config(FocusTrackerConfig::default())
+    }
+
+    pub fn with_config(config: FocusTrackerConfig) -> Self {
         Self {
             impl_focus_tracker: ImplFocusTracker::new(),
+            config,
         }
     }
 }
@@ -25,7 +34,7 @@ impl FocusTracker {
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.impl_focus_tracker.track_focus(on_focus)
+        self.impl_focus_tracker.track_focus(on_focus, &self.config)
     }
 
     pub fn track_focus_with_stop<F>(
@@ -37,7 +46,7 @@ impl FocusTracker {
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
         self.impl_focus_tracker
-            .track_focus_with_stop(on_focus, stop_signal)
+            .track_focus_with_stop(on_focus, stop_signal, &self.config)
     }
 
     /// Subscribe to focus changes and receive them via a channel

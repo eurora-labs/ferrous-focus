@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 use x11rb::{
@@ -12,21 +12,29 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-pub fn track_focus<F>(on_focus: F) -> FerrousFocusResult<()>
+pub fn track_focus<F>(on_focus: F, config: &FocusTrackerConfig) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
-    run(on_focus, None)
+    run(on_focus, None, config)
 }
 
-pub fn track_focus_with_stop<F>(on_focus: F, stop_signal: &AtomicBool) -> FerrousFocusResult<()>
+pub fn track_focus_with_stop<F>(
+    on_focus: F,
+    stop_signal: &AtomicBool,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
-    run(on_focus, Some(stop_signal))
+    run(on_focus, Some(stop_signal), config)
 }
 
-fn run<F>(mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
+fn run<F>(
+    mut on_focus: F,
+    stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
@@ -48,7 +56,7 @@ where
             break;
         }
 
-        let event = get_next_event(&conn, stop_signal)?;
+        let event = get_next_event(&conn, stop_signal, config)?;
 
         if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
             let mut should_emit_focus_event = false;
@@ -162,6 +170,7 @@ fn setup_root_window_monitoring<C: Connection>(conn: &C, root: u32) -> FerrousFo
 fn get_next_event<C: Connection>(
     conn: &C,
     stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
 ) -> FerrousFocusResult<Event> {
     match stop_signal {
         Some(_) => {
@@ -171,7 +180,7 @@ fn get_next_event<C: Connection>(
                     Ok(Some(e)) => return Ok(e),
                     Ok(None) => {
                         // No event available, sleep briefly to avoid busy waiting
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        std::thread::sleep(config.poll_interval);
                         continue;
                     }
                     Err(e) => {

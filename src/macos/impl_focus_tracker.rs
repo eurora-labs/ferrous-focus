@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusResult, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::debug;

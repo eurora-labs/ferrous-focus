@@ -1,6 +1,5 @@
 use crate::{FocusedWindow, error::FerrousFocusResult};
 use base64::prelude::*;
-use objc2_app_kit::NSWorkspace;
 use std::process::Command;
 
 /// Get all information about the frontmost window in a single atomic operation.
@@ -17,20 +16,6 @@ pub fn get_frontmost_window_info() -> FerrousFocusResult<FocusedWindow> {
 
         Ok(window_info)
         // Ok((display_name, process_id, window_title))
-    }
-}
-
-/// Get the localized application name for a given process ID.
-fn get_localized_app_name(process_id: u32) -> Option<String> {
-    #[allow(unused_unsafe)]
-    unsafe {
-        let workspace = NSWorkspace::sharedWorkspace();
-        let running_apps = workspace.runningApplications();
-
-        running_apps
-            .iter()
-            .find(|app| app.processIdentifier() as u32 == process_id)
-            .and_then(|app| app.localizedName().map(|name| name.to_string()))
     }
 }
 

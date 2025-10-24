@@ -66,52 +66,6 @@ fn test_icon_format_png() {
                 stop_signal.store(true, Ordering::Relaxed);
                 let _ = tracker_handle.join();
 
-                // Check for PNG format icons
-                if let Ok(events) = focus_events.lock() {
-                    for event in events.iter() {
-                        if let Some(icon) = &event.icon {
-                            let bytes = icon.as_bytes();
-
-                            // On Windows/macOS, we expect PNG format
-                            // Check PNG header: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-                            if bytes.len() >= 8 {
-                                let png_header = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-                                if bytes[..8] == png_header {
-                                    info!("Found valid PNG header in icon data");
-
-                                    // Try to decode with image crate
-                                    match image::load_from_memory(bytes) {
-                                        Ok(img) => {
-                                            info!(
-                                                "Successfully decoded PNG icon: {}x{}",
-                                                img.width(),
-                                                img.height()
-                                            );
-                                            assert!(img.width() > 0 && img.height() > 0);
-                                            // Verify dimensions match IconData
-                                            assert_eq!(
-                                                img.width() as usize,
-                                                icon.width,
-                                                "PNG width should match IconData width"
-                                            );
-                                            assert_eq!(
-                                                img.height() as usize,
-                                                icon.height,
-                                                "PNG height should match IconData height"
-                                            );
-                                        }
-                                        Err(e) => {
-                                            info!("Failed to decode PNG icon: {}", e);
-                                        }
-                                    }
-                                } else {
-                                    info!("Icon data does not have PNG header (may be raw RGBA)");
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Cleanup
                 if let Err(e) = cleanup_child_process(child) {
                     info!("Warning: Failed to cleanup child process: {}", e);

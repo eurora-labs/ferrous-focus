@@ -7,6 +7,8 @@ mod util;
 
 use ferrous_focus::{FerrousFocusError, FerrousFocusResult, FocusTracker, FocusedWindow};
 use serial_test::serial;
+#[allow(unused_imports)]
+use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[allow(unused_imports)]
 use std::sync::{Arc, Mutex};

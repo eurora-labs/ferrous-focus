@@ -14,7 +14,6 @@ use ferrous_focus::{
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 fn save_icon_to_file(
     icon_data: &image::RgbaImage,

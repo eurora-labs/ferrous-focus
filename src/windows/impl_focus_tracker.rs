@@ -1,6 +1,5 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::{HWND, WPARAM},
     Graphics::Gdi::{
@@ -25,25 +24,31 @@ impl ImplFocusTracker {
 }
 
 impl ImplFocusTracker {
-    pub fn track_focus<F>(&self, on_focus: F) -> FerrousFocusResult<()>
+    pub fn track_focus<F>(&self, on_focus: F, config: &FocusTrackerConfig) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, None)
+        self.run(on_focus, None, config)
     }
 
     pub fn track_focus_with_stop<F>(
         &self,
         on_focus: F,
         stop_signal: &AtomicBool,
+        config: &FocusTrackerConfig,
     ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
-        self.run(on_focus, Some(stop_signal))
+        self.run(on_focus, Some(stop_signal), config)
     }
 
-    fn run<F>(&self, mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
+    fn run<F>(
+        &self,
+        mut on_focus: F,
+        stop_signal: Option<&AtomicBool>,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
     where
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
@@ -60,7 +65,7 @@ impl ImplFocusTracker {
         if let Some(hwnd) = utils::get_foreground_window()
             && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
         {
-            let icon = get_window_icon(hwnd);
+            let icon = get_window_icon(hwnd, &config.icon);
             let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
             if let Err(e) = on_focus(FocusedWindow {
                 process_id: Some(process_id),
@@ -102,7 +107,7 @@ impl ImplFocusTracker {
 
                         // Trigger handler if either window focus or title has changed
                         if focus_changed || title_changed {
-                            let icon = get_window_icon(current_hwnd);
+                            let icon = get_window_icon(current_hwnd, &config.icon);
                             let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
                                 .unwrap_or_default();
                             if let Err(e) = on_focus(FocusedWindow {
@@ -131,7 +136,7 @@ impl ImplFocusTracker {
             }
 
             // Sleep to avoid high CPU usage
-            std::thread::sleep(Duration::from_millis(250));
+            std::thread::sleep(config.poll_interval);
         }
 
         Ok(())
@@ -142,16 +147,34 @@ impl ImplFocusTracker {
 /* Helper functions                                              */
 /* ------------------------------------------------------------ */
 
+/// Resize an image to the specified dimensions using Lanczos3 filtering
+fn resize_icon(image: image::RgbaImage, target_size: u32) -> image::RgbaImage {
+    use image::imageops::FilterType;
+
+    // Only resize if the image is not already the target size
+    if image.width() == target_size && image.height() == target_size {
+        return image;
+    }
+
+    image::imageops::resize(&image, target_size, target_size, FilterType::Lanczos3)
+}
+
 /// Get the icon for a window
-fn get_window_icon(hwnd: HWND) -> Option<image::RgbaImage> {
-    unsafe { extract_window_icon(hwnd).ok() }
+fn get_window_icon(
+    hwnd: HWND,
+    icon_config: &crate::config::IconConfig,
+) -> Option<image::RgbaImage> {
+    unsafe { extract_window_icon(hwnd, icon_config).ok() }
 }
 
 /// Extract the icon bitmap from a window handle
 ///
 /// # Safety
 /// This function uses unsafe Win32 API calls and assumes the HWND is valid
-unsafe fn extract_window_icon(hwnd: HWND) -> FerrousFocusResult<image::RgbaImage> {
+unsafe fn extract_window_icon(
+    hwnd: HWND,
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
 
     // Try to get the icon from the window in order of preference:
@@ -331,7 +354,14 @@ unsafe fn extract_window_icon(hwnd: HWND) -> FerrousFocusResult<image::RgbaImage
     }
 
     // Create RgbaImage from pixel data
-    image::RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
+    let mut image = image::RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
         FerrousFocusError::Platform("Failed to create RgbaImage from pixel data".to_string())
-    })
+    })?;
+
+    // Resize the icon if needed
+    if let Some(target_size) = icon_config.size {
+        image = resize_icon(image, target_size);
+    }
+
+    Ok(image)
 }

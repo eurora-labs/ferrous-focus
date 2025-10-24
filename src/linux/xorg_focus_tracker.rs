@@ -1,4 +1,4 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 use x11rb::{
@@ -12,21 +12,29 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-pub fn track_focus<F>(on_focus: F) -> FerrousFocusResult<()>
+pub fn track_focus<F>(on_focus: F, config: &FocusTrackerConfig) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
-    run(on_focus, None)
+    run(on_focus, None, config)
 }
 
-pub fn track_focus_with_stop<F>(on_focus: F, stop_signal: &AtomicBool) -> FerrousFocusResult<()>
+pub fn track_focus_with_stop<F>(
+    on_focus: F,
+    stop_signal: &AtomicBool,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
-    run(on_focus, Some(stop_signal))
+    run(on_focus, Some(stop_signal), config)
 }
 
-fn run<F>(mut on_focus: F, stop_signal: Option<&AtomicBool>) -> FerrousFocusResult<()>
+fn run<F>(
+    mut on_focus: F,
+    stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
 where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
@@ -48,7 +56,7 @@ where
             break;
         }
 
-        let event = get_next_event(&conn, stop_signal)?;
+        let event = get_next_event(&conn, stop_signal, config)?;
 
         if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
             let mut should_emit_focus_event = false;
@@ -79,7 +87,7 @@ where
             }
 
             if should_emit_focus_event && let Some(window) = new_window {
-                match get_focused_window_info(&conn, window, &atoms) {
+                match get_focused_window_info(&conn, window, &atoms, &config.icon) {
                     Ok(focused_window) => {
                         if let Err(e) = on_focus(focused_window) {
                             info!("Focus event handler failed: {}", e);
@@ -162,6 +170,7 @@ fn setup_root_window_monitoring<C: Connection>(conn: &C, root: u32) -> FerrousFo
 fn get_next_event<C: Connection>(
     conn: &C,
     stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
 ) -> FerrousFocusResult<Event> {
     match stop_signal {
         Some(_) => {
@@ -171,7 +180,7 @@ fn get_next_event<C: Connection>(
                     Ok(Some(e)) => return Ok(e),
                     Ok(None) => {
                         // No event available, sleep briefly to avoid busy waiting
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        std::thread::sleep(config.poll_interval);
                         continue;
                     }
                     Err(e) => {
@@ -235,6 +244,7 @@ fn get_focused_window_info<C: Connection>(
     conn: &C,
     window: u32,
     atoms: &X11Atoms,
+    icon_config: &crate::config::IconConfig,
 ) -> FerrousFocusResult<FocusedWindow> {
     // Handle window property queries with graceful error handling
     let title = get_window_name(conn, window, atoms).unwrap_or_else(|e| {
@@ -249,7 +259,7 @@ fn get_focused_window_info<C: Connection>(
             (None, Some("<unknown>".to_string()))
         });
 
-    let icon = get_icon_data(conn, window, atoms.net_wm_icon).ok();
+    let icon = get_icon_data(conn, window, atoms.net_wm_icon, icon_config).ok();
 
     Ok(FocusedWindow {
         process_id,
@@ -366,11 +376,24 @@ fn get_process_info<C: Connection>(
     Ok((pid, process_name))
 }
 
+/// Resize an image to the specified dimensions using Lanczos3 filtering
+fn resize_icon(image: image::RgbaImage, target_size: u32) -> image::RgbaImage {
+    use image::imageops::FilterType;
+
+    // Only resize if the image is not already the target size
+    if image.width() == target_size && image.height() == target_size {
+        return image;
+    }
+
+    image::imageops::resize(&image, target_size, target_size, FilterType::Lanczos3)
+}
+
 /// Get icon data for a window and return it as an image::RgbaImage.
 fn get_icon_data<C: Connection>(
     conn: &C,
     window: u32,
     net_wm_icon: u32,
+    icon_config: &crate::config::IconConfig,
 ) -> FerrousFocusResult<image::RgbaImage> {
     let cookie = conn
         .get_property(
@@ -448,7 +471,14 @@ fn get_icon_data<C: Connection>(
     }
 
     // Create RgbaImage from the pixel data
-    image::RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
+    let mut image = image::RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
         FerrousFocusError::Platform("Failed to create RgbaImage from pixel data".to_string())
-    })
+    })?;
+
+    // Resize the icon if needed
+    if let Some(target_size) = icon_config.size {
+        image = resize_icon(image, target_size);
+    }
+
+    Ok(image)
 }

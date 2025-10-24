@@ -1,5 +1,5 @@
-use super::{utils::wayland_detect, wayland_focus_tracker, xorg_focus_tracker};
-use crate::{FerrousFocusResult, FocusedWindow};
+use super::{utils::wayland_detect, xorg_focus_tracker};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
 use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone)]
@@ -17,7 +17,8 @@ impl ImplFocusTracker {
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
         if wayland_detect() {
-            wayland_focus_tracker::track_focus(on_focus)
+            // Wayland is not supported for the time being
+            Err(FerrousFocusError::Unsupported)
         } else {
             xorg_focus_tracker::track_focus(on_focus)
         }
@@ -32,7 +33,8 @@ impl ImplFocusTracker {
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
         if wayland_detect() {
-            wayland_focus_tracker::track_focus_with_stop(on_focus, stop_signal)
+            // Wayland is not supported for the time being
+            Err(FerrousFocusError::Unsupported)
         } else {
             xorg_focus_tracker::track_focus_with_stop(on_focus, stop_signal)
         }

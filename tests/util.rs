@@ -97,17 +97,16 @@ fn focus_window_linux(child: &mut Child) -> Result<(), Box<dyn std::error::Error
         // Find the window ID for our PID
         for line in output_str.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                if let Ok(window_pid) = parts[2].parse::<u32>() {
-                    if window_pid == pid {
-                        let window_id = parts[0];
-                        // Focus the window
-                        Command::new("wmctrl")
-                            .args(["-i", "-a", window_id])
-                            .output()?;
-                        return Ok(());
-                    }
-                }
+            if parts.len() >= 3
+                && let Ok(window_pid) = parts[2].parse::<u32>()
+                && window_pid == pid
+            {
+                let window_id = parts[0];
+                // Focus the window
+                Command::new("wmctrl")
+                    .args(["-i", "-a", window_id])
+                    .output()?;
+                return Ok(());
             }
         }
     }
@@ -160,12 +159,11 @@ pub fn wait_for_focus(expected_title: &str, timeout: Duration) -> bool {
     let start = Instant::now();
 
     while start.elapsed() < timeout {
-        if let Ok(focused) = get_current_focused_window() {
-            if let Some(title) = focused.window_title {
-                if title.contains(expected_title) {
-                    return true;
-                }
-            }
+        if let Ok(focused) = get_current_focused_window()
+            && let Some(title) = focused.window_title
+            && title.contains(expected_title)
+        {
+            return true;
         }
 
         std::thread::sleep(Duration::from_millis(100));

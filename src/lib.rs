@@ -15,7 +15,7 @@ mod platform;
 
 pub use error::{FerrousFocusError, FerrousFocusResult};
 pub use focus_tracker::FocusTracker;
-pub use focused_window::{FocusedWindow, IconData};
+pub use focused_window::FocusedWindow;
 
 // For platform specific util API's
 pub use platform::utils;

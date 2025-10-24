@@ -1,56 +1,57 @@
-use crate::error::FerrousFocusResult;
-use objc2_app_kit::NSWorkspace;
+use crate::{FocusedWindow, error::FerrousFocusResult};
+use base64::prelude::*;
 use std::process::Command;
 
 /// Get all information about the frontmost window in a single atomic operation.
 /// Returns: (app_name, process_id, window_title)
-pub fn get_frontmost_window_info() -> FerrousFocusResult<(String, u32, String)> {
+pub fn get_frontmost_window_info() -> FerrousFocusResult<FocusedWindow> {
     #[allow(unused_unsafe)]
     unsafe {
         // Get PID and window title from AppleScript
-        let (process_name, process_id, window_title) = get_window_info_via_applescript()?;
+        let window_info = get_window_info_via_applescript()?;
 
         // Get the localized app name from NSWorkspace using the PID
         // This gives us the user-friendly name (e.g., "Windsurf" instead of "Electron")
-        let display_name = get_localized_app_name(process_id).unwrap_or(process_name);
+        // let display_name = get_localized_app_name(process_id).unwrap_or(process_name);
 
-        Ok((display_name, process_id, window_title))
-    }
-}
-
-/// Get the localized application name for a given process ID.
-fn get_localized_app_name(process_id: u32) -> Option<String> {
-    #[allow(unused_unsafe)]
-    unsafe {
-        let workspace = NSWorkspace::sharedWorkspace();
-        let running_apps = workspace.runningApplications();
-
-        running_apps
-            .iter()
-            .find(|app| app.processIdentifier() as u32 == process_id)
-            .and_then(|app| app.localizedName().map(|name| name.to_string()))
+        Ok(window_info)
+        // Ok((display_name, process_id, window_title))
     }
 }
 
 /// Get all window information via AppleScript.
 /// Returns: (app_name, process_id, window_title)
-unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<(String, u32, String)> {
+unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<FocusedWindow> {
     const APPLESCRIPT: &str = r#"
-    tell application "System Events"
-        set frontApp to first application process whose frontmost is true
-        set frontAppName to name of frontApp
-        set frontAppPID to unix id of frontApp
+    use framework "Foundation"
+    use framework "AppKit"
+    use scripting additions
 
-        tell process frontAppName
-            try
-                set windowTitle to name of first window
-            on error
-                set windowTitle to ""
-            end try
-        end tell
-        set NUL to (ASCII character 0)
-        return frontAppName & NUL & frontAppPID & NUL & windowTitle
+    tell application "System Events"
+	set frontApp to first application process whose frontmost is true
+	set frontAppName to name of frontApp
+	set frontAppPID to unix id of frontApp
+	set windowTitle to ""
+	try
+		tell frontApp to set windowTitle to name of first window
+	end try
     end tell
+
+    set nsapp to current application's NSRunningApplication's runningApplicationWithProcessIdentifier:frontAppPID
+    set appURL to nsapp's bundleURL()
+    set appPath to (appURL's |path|()) as text
+
+    set ws to current application's NSWorkspace's sharedWorkspace()
+    set img to ws's iconForFile:appPath
+    img's setSize:{128, 128}
+
+    set tiffData to img's TIFFRepresentation()
+    set rep to current application's NSBitmapImageRep's imageRepWithData:tiffData
+    set pngData to rep's representationUsingType:(current application's NSBitmapImageFileTypePNG) |properties|:(current application's NSDictionary's dictionary())
+    set b64 to (pngData's base64EncodedStringWithOptions:0) as text
+
+    set NUL to (ASCII character 0)
+    return frontAppName & NUL & frontAppPID & NUL & windowTitle & NUL & b64
     "#;
 
     let output = Command::new("osascript")
@@ -87,7 +88,7 @@ unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<(String, u32, 
 }
 
 /// Parse the AppleScript output into structured data.
-fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<(String, u32, String)> {
+fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<FocusedWindow> {
     let mut parts = bytes.split(|&b| b == 0);
     let app_name = String::from_utf8(parts.next().unwrap_or_default().to_vec()).map_err(|_| {
         crate::error::FerrousFocusError::Platform("Failed to parse app name".to_string())
@@ -105,5 +106,19 @@ fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<(String, u32, St
             crate::error::FerrousFocusError::Platform("Failed to parse window title".to_string())
         })?;
 
-    Ok((app_name, pid, window_title))
+    let icon_data = parts.next().unwrap_or_default().to_vec();
+    let b64 = BASE64_STANDARD.decode(icon_data).map_err(|_| {
+        crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string())
+    })?;
+    let image = image::load_from_memory(&b64)
+        .map_err(|_| crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string()))?
+        .to_rgba8();
+
+    Ok(FocusedWindow {
+        process_id: Some(pid),
+        window_title: Some(window_title),
+        process_name: Some(app_name),
+        // icon: None,
+        icon: Some(image),
+    })
 }

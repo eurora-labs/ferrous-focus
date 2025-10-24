@@ -4,18 +4,18 @@
 [![Documentation](https://docs.rs/ferrous-focus/badge.svg)](https://docs.rs/ferrous-focus)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-A cross-platform focus tracker for Linux (X11/Wayland), macOS, and Windows that monitors window focus changes and provides detailed information about the currently focused window.
+A cross-platform focus tracker for Linux (X11), macOS, and Windows that monitors window focus changes and provides detailed information about the currently focused window.
 
 ## Features
 
--   **Cross-platform support**: Works on Linux (X11 and Wayland), macOS, and Windows
+-   **Cross-platform support**: Works on Linux (X11), macOS, and Windows
 -   **Real-time focus tracking**: Monitor window focus changes as they happen
 -   **Window metadata**: Access window title, process name, process ID, and icon data
 -   **Icon extraction**: Retrieve window icons in RGBA format
 -   **Event-driven API**: Subscribe to focus changes via channels or callbacks
 -   **Graceful shutdown**: Stop tracking with atomic boolean signals
 -   **Comprehensive platform support**:
-    -   Linux: X11 and Wayland display servers
+    -   Linux: X11 display servers
     -   macOS: Native Cocoa/AppKit integration
     -   Windows: Win32 API integration
 
@@ -224,7 +224,6 @@ pub fn subscribe_focus_changes() -> FerrousFocusResult<std::sync::mpsc::Receiver
 ### Linux
 
 -   **X11**: Full support via `x11rb`
--   **Wayland**: Support via `wayland-client` and `swayipc`
 -   Automatic detection and fallback between display servers
 
 ### macOS

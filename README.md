@@ -25,7 +25,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferrous-focus = "0.2.6"
+ferrous-focus = "0.3.0"
 ```
 
 ## Quick Start

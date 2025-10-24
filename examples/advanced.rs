@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_poll_interval_ms(50)
         // Custom icon configuration
         .with_icon_config(
-            IconConfig::new().with_size(16), // Larger icons for better quality
+            IconConfig::new().with_size(64), // Larger icons for better quality
         );
 
     println!("⚙️  Configuration:");

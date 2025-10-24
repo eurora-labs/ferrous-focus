@@ -33,13 +33,13 @@ unsafe fn get_window_info_via_applescript(
     use scripting additions
 
     tell application "System Events"
-	set frontApp to first application process whose frontmost is true
-	set frontAppName to name of frontApp
-	set frontAppPID to unix id of frontApp
-	set windowTitle to ""
-	try
-		tell frontApp to set windowTitle to name of first window
-	end try
+ set frontApp to first application process whose frontmost is true
+ set frontAppName to name of frontApp
+ set frontAppPID to unix id of frontApp
+ set windowTitle to ""
+ try
+  tell frontApp to set windowTitle to name of first window
+ end try
     end tell
 
     set nsapp to current application's NSRunningApplication's runningApplicationWithProcessIdentifier:frontAppPID
@@ -48,17 +48,24 @@ unsafe fn get_window_info_via_applescript(
 
     set ws to current application's NSWorkspace's sharedWorkspace()
     set img to ws's iconForFile:appPath
-    img's setSize:{{{}, {}}}
 
-    set tiffData to img's TIFFRepresentation()
-    set rep to current application's NSBitmapImageRep's imageRepWithData:tiffData
+    -- Create bitmap representation directly with the target size
+    set targetRect to current application's NSMakeRect(0, 0, {}, {})
+    set rep to (current application's NSBitmapImageRep's alloc()'s initWithBitmapDataPlanes:(missing value) pixelsWide:{} pixelsHigh:{} bitsPerSample:8 samplesPerPixel:4 hasAlpha:true isPlanar:false colorSpaceName:(current application's NSCalibratedRGBColorSpace) bytesPerRow:0 bitsPerPixel:0)
+
+    -- Draw into the bitmap representation
+    current application's NSGraphicsContext's saveGraphicsState()
+    (current application's NSGraphicsContext's setCurrentContext:(current application's NSGraphicsContext's graphicsContextWithBitmapImageRep:rep))
+    img's drawInRect:targetRect fromRect:(current application's NSZeroRect) operation:(current application's NSCompositingOperationCopy) fraction:1.0
+    current application's NSGraphicsContext's restoreGraphicsState()
+
     set pngData to rep's representationUsingType:(current application's NSBitmapImageFileTypePNG) |properties|:(current application's NSDictionary's dictionary())
     set b64 to (pngData's base64EncodedStringWithOptions:0) as text
 
     set NUL to (ASCII character 0)
     return frontAppName & NUL & frontAppPID & NUL & windowTitle & NUL & b64
     "#,
-        icon_size, icon_size
+        icon_size, icon_size, icon_size, icon_size
     );
 
     let output = Command::new("osascript")

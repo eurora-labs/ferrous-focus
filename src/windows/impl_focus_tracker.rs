@@ -1,7 +1,16 @@
-use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow, IconData};
+use crate::{FerrousFocusError, FerrousFocusResult, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::{
+    Foundation::{HWND, WPARAM},
+    Graphics::Gdi::{
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
+        DeleteObject, GetDIBits, SelectObject,
+    },
+    UI::WindowsAndMessaging::{
+        GCLP_HICON, GCLP_HICONSM, GetClassLongPtrW, ICON_BIG, ICON_SMALL, SendMessageW, WM_GETICON,
+    },
+};
 
 use super::utils;
 use tracing::info;
@@ -51,7 +60,7 @@ impl ImplFocusTracker {
         if let Some(hwnd) = utils::get_foreground_window()
             && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
         {
-            let icon = get_window_icon(hwnd).ok();
+            let icon = get_window_icon(hwnd);
             let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
             if let Err(e) = on_focus(FocusedWindow {
                 process_id: Some(process_id),
@@ -93,7 +102,7 @@ impl ImplFocusTracker {
 
                         // Trigger handler if either window focus or title has changed
                         if focus_changed || title_changed {
-                            let icon = get_window_icon(current_hwnd).ok();
+                            let icon = get_window_icon(current_hwnd);
                             let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
                                 .unwrap_or_default();
                             if let Err(e) = on_focus(FocusedWindow {
@@ -133,70 +142,196 @@ impl ImplFocusTracker {
 /* Helper functions                                              */
 /* ------------------------------------------------------------ */
 
-/// Get the icon for a window (simplified implementation)
-fn get_window_icon(_hwnd: HWND) -> FerrousFocusResult<IconData> {
-    // For now, return empty IconData as getting window icons on Windows
-    // requires more complex Win32 API calls and icon extraction
-    // This could be enhanced later with proper icon extraction
-
-    // We would need to:
-    // 1. Get the window's class icon or application icon
-    // 2. Extract the icon data
-    // 3. Convert to RGBA format
-    // 4. Return as IconData
-
-    // For the initial implementation, we'll return empty IconData
-    // which matches the behavior when icon extraction fails in other platforms
-    Ok(IconData {
-        width: 0,
-        height: 0,
-        pixels: Vec::new(),
-    })
+/// Get the icon for a window
+fn get_window_icon(hwnd: HWND) -> Option<image::RgbaImage> {
+    unsafe { extract_window_icon(hwnd).ok() }
 }
 
-/// Convert ARGB icon data to IconData (placeholder for future implementation)
-fn _convert_icon_to_icon_data(icon_data: &[u32]) -> FerrousFocusResult<IconData> {
-    if icon_data.len() < 2 {
-        return Err(FerrousFocusError::Platform("Invalid icon data".to_string()));
+/// Extract the icon bitmap from a window handle
+///
+/// # Safety
+/// This function uses unsafe Win32 API calls and assumes the HWND is valid
+unsafe fn extract_window_icon(hwnd: HWND) -> FerrousFocusResult<image::RgbaImage> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
+
+    // Try to get the icon from the window in order of preference:
+    // 1. Try WM_GETICON with ICON_BIG
+    // 2. Try WM_GETICON with ICON_SMALL
+    // 3. Try GetClassLongPtrW with GCLP_HICON
+    // 4. Try GetClassLongPtrW with GCLP_HICONSM
+
+    let hicon = unsafe { SendMessageW(hwnd, WM_GETICON, ICON_BIG as WPARAM, 0) };
+    let hicon = if hicon != 0 {
+        hicon as isize
+    } else {
+        let hicon = unsafe { SendMessageW(hwnd, WM_GETICON, ICON_SMALL as WPARAM, 0) };
+        if hicon != 0 {
+            hicon as isize
+        } else {
+            let hicon = unsafe { GetClassLongPtrW(hwnd, GCLP_HICON) } as isize;
+            if hicon != 0 {
+                hicon
+            } else {
+                let hicon = unsafe { GetClassLongPtrW(hwnd, GCLP_HICONSM) } as isize;
+                if hicon != 0 {
+                    hicon
+                } else {
+                    return Err(FerrousFocusError::Platform(
+                        "No icon found for window".to_string(),
+                    ));
+                }
+            }
+        }
+    };
+
+    // Get icon information
+    let mut icon_info: ICONINFO = unsafe { std::mem::zeroed() };
+    if unsafe { GetIconInfo(hicon as _, &mut icon_info) } == 0 {
+        return Err(FerrousFocusError::Platform(
+            "Failed to get icon info".to_string(),
+        ));
     }
 
-    let width = icon_data[0] as usize;
-    let height = icon_data[1] as usize;
+    // Extract the color bitmap (hbmColor) or mask bitmap (hbmMask) if color is not available
+    let bitmap = if !icon_info.hbmColor.is_null() {
+        icon_info.hbmColor
+    } else {
+        icon_info.hbmMask
+    };
 
-    if width == 0 || height == 0 || width > 1024 || height > 1024 {
+    // Get bitmap dimensions
+    let hdc = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
+    if hdc.is_null() {
+        unsafe {
+            if !icon_info.hbmColor.is_null() {
+                DeleteObject(icon_info.hbmColor);
+            }
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+        }
+        return Err(FerrousFocusError::Platform(
+            "Failed to create DC".to_string(),
+        ));
+    }
+
+    // Select the bitmap into the DC
+    let old_bitmap = unsafe { SelectObject(hdc, bitmap) };
+
+    // Setup BITMAPINFO to get the bitmap data
+    let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
+    bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+
+    // Get bitmap info
+    if unsafe {
+        GetDIBits(
+            hdc,
+            bitmap,
+            0,
+            0,
+            std::ptr::null_mut(),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        )
+    } == 0
+    {
+        unsafe {
+            SelectObject(hdc, old_bitmap);
+            DeleteDC(hdc);
+            if !icon_info.hbmColor.is_null() {
+                DeleteObject(icon_info.hbmColor);
+            }
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+        }
+        return Err(FerrousFocusError::Platform(
+            "Failed to get bitmap info".to_string(),
+        ));
+    }
+
+    let width = bmi.bmiHeader.biWidth as u32;
+    let height = bmi.bmiHeader.biHeight.unsigned_abs();
+
+    if width == 0 || height == 0 {
+        unsafe {
+            SelectObject(hdc, old_bitmap);
+            DeleteDC(hdc);
+            if !icon_info.hbmColor.is_null() {
+                DeleteObject(icon_info.hbmColor);
+            }
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+        }
         return Err(FerrousFocusError::Platform(
             "Invalid icon dimensions".to_string(),
         ));
     }
 
-    // Convert ARGB to RGBA format
-    let mut pixels = Vec::with_capacity(width * height * 4);
+    // Setup for 32-bit RGBA
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    bmi.bmiHeader.biHeight = -(height as i32); // Negative for top-down bitmap
 
-    for y in 0..height {
-        for x in 0..width {
-            let idx = 2 + (y * width + x);
-            if idx < icon_data.len() {
-                let argb = icon_data[idx];
-                let a = ((argb >> 24) & 0xFF) as u8;
-                let r = ((argb >> 16) & 0xFF) as u8;
-                let g = ((argb >> 8) & 0xFF) as u8;
-                let b = (argb & 0xFF) as u8;
+    // Allocate buffer for pixel data
+    let pixel_count = (width * height) as usize;
+    let mut pixels: Vec<u8> = vec![0; pixel_count * 4];
 
-                // Store as RGBA
-                pixels.push(r);
-                pixels.push(g);
-                pixels.push(b);
-                pixels.push(a);
-            } else {
-                // Fill with transparent pixels if data is missing
-                pixels.extend_from_slice(&[0, 0, 0, 0]);
+    // Get the actual bitmap bits
+    if unsafe {
+        GetDIBits(
+            hdc,
+            bitmap,
+            0,
+            height,
+            pixels.as_mut_ptr() as *mut _,
+            &mut bmi,
+            DIB_RGB_COLORS,
+        )
+    } == 0
+    {
+        unsafe {
+            SelectObject(hdc, old_bitmap);
+            DeleteDC(hdc);
+            if !icon_info.hbmColor.is_null() {
+                DeleteObject(icon_info.hbmColor);
             }
+            if !icon_info.hbmMask.is_null() {
+                DeleteObject(icon_info.hbmMask);
+            }
+        }
+        return Err(FerrousFocusError::Platform(
+            "Failed to get bitmap bits".to_string(),
+        ));
+    }
+
+    // Convert BGRA to RGBA
+    for i in (0..pixels.len()).step_by(4) {
+        pixels.swap(i, i + 2); // Swap B and R
+    }
+
+    // Cleanup
+    unsafe {
+        SelectObject(hdc, old_bitmap);
+        DeleteDC(hdc);
+        if !icon_info.hbmColor.is_null() {
+            DeleteObject(icon_info.hbmColor);
+        }
+        if !icon_info.hbmMask.is_null() {
+            DeleteObject(icon_info.hbmMask);
+        }
+        // Note: Don't destroy the icon if it came from GetClassLongPtrW as it's owned by the class
+        // Only destroy if it came from WM_GETICON
+        let from_wm_geticon = SendMessageW(hwnd, WM_GETICON, ICON_BIG as WPARAM, 0) != 0
+            || SendMessageW(hwnd, WM_GETICON, ICON_SMALL as WPARAM, 0) != 0;
+        if from_wm_geticon {
+            DestroyIcon(hicon as _);
         }
     }
 
-    Ok(IconData {
-        width,
-        height,
-        pixels,
+    // Create RgbaImage from pixel data
+    image::RgbaImage::from_raw(width, height, pixels).ok_or_else(|| {
+        FerrousFocusError::Platform("Failed to create RgbaImage from pixel data".to_string())
     })
 }

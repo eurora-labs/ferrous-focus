@@ -14,7 +14,7 @@ mod platform;
 #[path = "windows/mod.rs"]
 mod platform;
 
-pub use config::FocusTrackerConfig;
+pub use config::{FocusTrackerConfig, IconConfig};
 pub use error::{FerrousFocusError, FerrousFocusResult};
 pub use focus_tracker::FocusTracker;
 pub use focused_window::FocusedWindow;

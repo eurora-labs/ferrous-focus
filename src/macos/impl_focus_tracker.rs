@@ -52,7 +52,7 @@ impl ImplFocusTracker {
             }
 
             // Get the current focused window information
-            match get_focused_window_info() {
+            match get_focused_window_info(&config.icon) {
                 Ok(window) => {
                     let current_state = (window.process_name.clone(), window.window_title.clone());
 
@@ -85,6 +85,8 @@ fn should_stop(stop_signal: Option<&AtomicBool>) -> bool {
 }
 
 /// Get information about the currently focused window.
-fn get_focused_window_info() -> FerrousFocusResult<FocusedWindow> {
-    utils::get_frontmost_window_info()
+fn get_focused_window_info(
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<FocusedWindow> {
+    utils::get_frontmost_window_info(icon_config)
 }

@@ -1,14 +1,14 @@
-use crate::{FocusedWindow, error::FerrousFocusResult};
+use crate::{FocusedWindow, config::IconConfig, error::FerrousFocusResult};
 use base64::prelude::*;
 use std::process::Command;
 
 /// Get all information about the frontmost window in a single atomic operation.
 /// Returns: (app_name, process_id, window_title)
-pub fn get_frontmost_window_info() -> FerrousFocusResult<FocusedWindow> {
+pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult<FocusedWindow> {
     #[allow(unused_unsafe)]
     unsafe {
         // Get PID and window title from AppleScript
-        let window_info = get_window_info_via_applescript()?;
+        let window_info = get_window_info_via_applescript(icon_config)?;
 
         // Get the localized app name from NSWorkspace using the PID
         // This gives us the user-friendly name (e.g., "Windsurf" instead of "Electron")
@@ -21,8 +21,13 @@ pub fn get_frontmost_window_info() -> FerrousFocusResult<FocusedWindow> {
 
 /// Get all window information via AppleScript.
 /// Returns: (app_name, process_id, window_title)
-unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<FocusedWindow> {
-    const APPLESCRIPT: &str = r#"
+unsafe fn get_window_info_via_applescript(
+    icon_config: &IconConfig,
+) -> FerrousFocusResult<FocusedWindow> {
+    let icon_size = icon_config.get_size_or_default();
+
+    let applescript = format!(
+        r#"
     use framework "Foundation"
     use framework "AppKit"
     use scripting additions
@@ -43,7 +48,7 @@ unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<FocusedWindow>
 
     set ws to current application's NSWorkspace's sharedWorkspace()
     set img to ws's iconForFile:appPath
-    img's setSize:{128, 128}
+    img's setSize:{{{}, {}}}
 
     set tiffData to img's TIFFRepresentation()
     set rep to current application's NSBitmapImageRep's imageRepWithData:tiffData
@@ -52,11 +57,13 @@ unsafe fn get_window_info_via_applescript() -> FerrousFocusResult<FocusedWindow>
 
     set NUL to (ASCII character 0)
     return frontAppName & NUL & frontAppPID & NUL & windowTitle & NUL & b64
-    "#;
+    "#,
+        icon_size, icon_size
+    );
 
     let output = Command::new("osascript")
         .arg("-e")
-        .arg(APPLESCRIPT)
+        .arg(&applescript)
         .output()
         .map_err(|e| {
             crate::error::FerrousFocusError::Platform(format!(

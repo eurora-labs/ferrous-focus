@@ -259,7 +259,9 @@ fn get_focused_window_info<C: Connection>(
             (None, Some("<unknown>".to_string()))
         });
 
-    let icon = get_icon_data(conn, window, atoms.net_wm_icon, icon_config).ok();
+    let icon = get_icon_data(conn, window, atoms.net_wm_icon, icon_config)
+        .or_else(|_| get_fallback_icon(&process_name, icon_config))
+        .ok();
 
     Ok(FocusedWindow {
         process_id,
@@ -481,4 +483,262 @@ fn get_icon_data<C: Connection>(
     }
 
     Ok(image)
+}
+
+/// Fallback function to search for application icons through the freedesktop icon system
+fn get_fallback_icon(
+    process_name: &Option<String>,
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
+    let process_name = process_name
+        .as_ref()
+        .ok_or_else(|| FerrousFocusError::Platform("No process name available".to_string()))?;
+
+    // Common icon search paths in order of priority
+    let icon_paths = [
+        format!("/usr/share/pixmaps/{}.png", process_name),
+        format!("/usr/share/pixmaps/{}.xpm", process_name),
+        format!("/usr/share/icons/hicolor/48x48/apps/{}.png", process_name),
+        format!("/usr/share/icons/hicolor/64x64/apps/{}.png", process_name),
+        format!("/usr/share/icons/hicolor/128x128/apps/{}.png", process_name),
+        format!("/usr/share/icons/hicolor/256x256/apps/{}.png", process_name),
+        format!("/usr/share/applications/{}.desktop", process_name),
+        // Try with common variations (e.g., "firefox" -> "Firefox")
+        format!("/usr/share/pixmaps/{}.png", capitalize_first(process_name)),
+        format!(
+            "/usr/share/icons/hicolor/48x48/apps/{}.png",
+            capitalize_first(process_name)
+        ),
+        format!(
+            "/usr/share/icons/hicolor/64x64/apps/{}.png",
+            capitalize_first(process_name)
+        ),
+    ];
+
+    // First, try direct icon files
+    for icon_path in &icon_paths {
+        if icon_path.ends_with(".desktop") {
+            // Handle .desktop files separately
+            if let Ok(icon_name) = extract_icon_from_desktop_file(icon_path)
+                && let Ok(image) = find_and_load_icon(&icon_name, icon_config)
+            {
+                return Ok(image);
+            }
+        } else if std::path::Path::new(icon_path).exists()
+            && let Ok(image) = load_and_resize_icon(icon_path, icon_config)
+        {
+            return Ok(image);
+        }
+    }
+
+    // Try all mapped icon name variants
+    for icon_name in map_process_to_icon_names(process_name) {
+        let additional_paths = [
+            format!("/usr/share/pixmaps/{}.png", icon_name),
+            format!("/usr/share/icons/hicolor/48x48/apps/{}.png", icon_name),
+            format!("/usr/share/icons/hicolor/64x64/apps/{}.png", icon_name),
+            format!("/usr/share/icons/hicolor/128x128/apps/{}.png", icon_name),
+            format!("/usr/share/icons/hicolor/256x256/apps/{}.png", icon_name),
+        ];
+
+        for icon_path in &additional_paths {
+            if std::path::Path::new(icon_path).exists()
+                && let Ok(image) = load_and_resize_icon(icon_path, icon_config)
+            {
+                return Ok(image);
+            }
+        }
+
+        // Try to find in icon themes using the theme search function
+        if let Ok(image) = find_and_load_icon(icon_name, icon_config) {
+            return Ok(image);
+        }
+    }
+
+    // If no direct icon found, try common icon theme locations
+    let home_icon_path = format!(
+        "{}/.local/share/icons",
+        std::env::var("HOME").unwrap_or_default()
+    );
+    let theme_paths = [
+        "/usr/share/icons/hicolor",
+        "/usr/share/icons/gnome",
+        "/usr/share/icons/Adwaita",
+        "/usr/share/icons",
+        home_icon_path.as_str(),
+    ];
+
+    for theme_path in &theme_paths {
+        if let Ok(image) = search_theme_directory(theme_path, process_name, icon_config) {
+            return Ok(image);
+        }
+    }
+
+    Err(FerrousFocusError::Platform(format!(
+        "No fallback icon found for process: {}",
+        process_name
+    )))
+}
+
+/// Capitalize the first letter of a string
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+/// Map process names to common icon names and provide multiple variants
+fn map_process_to_icon_names(process_name: &str) -> Vec<&str> {
+    match process_name {
+        "firefox" | "firefox-bin" => vec!["firefox", "Firefox", "firefox-browser"],
+        "chrome" | "google-chrome" | "google-chrome-stable" => {
+            vec!["google-chrome", "chrome", "google-chrome-stable"]
+        }
+        "chromium" | "chromium-browser" => vec!["chromium", "chromium-browser"],
+        "code" | "code-oss" => vec![
+            "visual-studio-code",
+            "code",
+            "vscode",
+            "com.visualstudio.code",
+        ],
+        "zed" => vec!["zed", "Zed", "zed-editor", "dev.zed.Zed"],
+        "gedit" => vec!["text-editor", "gedit", "org.gnome.gedit"],
+        "nautilus" => vec!["file-manager", "nautilus", "org.gnome.Nautilus"],
+        "gnome-terminal" | "gnome-terminal-server" => {
+            vec!["terminal", "gnome-terminal", "org.gnome.Terminal"]
+        }
+        "konsole" => vec!["utilities-terminal", "konsole"],
+        "dolphin" => vec!["system-file-manager", "dolphin", "org.kde.dolphin"],
+        "okular" => vec!["okular", "org.kde.okular"],
+        "libreoffice-writer" => vec!["libreoffice-writer", "writer"],
+        "libreoffice-calc" => vec!["libreoffice-calc", "calc"],
+        "thunderbird" => vec!["thunderbird", "mozilla-thunderbird"],
+        "vlc" => vec!["vlc", "org.videolan.VLC"],
+        "gimp" => vec!["gimp", "org.gimp.GIMP"],
+        "brave" | "brave-browser" => vec!["brave", "brave-browser", "com.brave.Browser"],
+        "discord" => vec!["discord", "com.discordapp.Discord"],
+        "slack" => vec!["slack", "com.slack.Slack"],
+        "spotify" => vec!["spotify", "com.spotify.Client"],
+        "steam" => vec!["steam", "com.valvesoftware.Steam"],
+        _ => vec![process_name],
+    }
+}
+
+/// Extract icon name from a .desktop file
+fn extract_icon_from_desktop_file(desktop_path: &str) -> FerrousFocusResult<String> {
+    let content = std::fs::read_to_string(desktop_path)
+        .map_err(|e| FerrousFocusError::Platform(format!("Failed to read desktop file: {}", e)))?;
+
+    for line in content.lines() {
+        if line.starts_with("Icon=") {
+            let icon_name = line.strip_prefix("Icon=").unwrap_or("").trim();
+            if !icon_name.is_empty() {
+                return Ok(icon_name.to_string());
+            }
+        }
+    }
+
+    Err(FerrousFocusError::Platform(
+        "No icon entry found in desktop file".to_string(),
+    ))
+}
+
+/// Find and load an icon by name from common theme locations
+fn find_and_load_icon(
+    icon_name: &str,
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
+    let sizes = [
+        "256x256", "128x128", "64x64", "48x48", "32x32", "24x24", "16x16",
+    ];
+    let extensions = ["png", "svg", "xpm"];
+
+    for size in &sizes {
+        for ext in &extensions {
+            let path = format!(
+                "/usr/share/icons/hicolor/{}/apps/{}.{}",
+                size, icon_name, ext
+            );
+            if std::path::Path::new(&path).exists()
+                && let Ok(image) = load_and_resize_icon(&path, icon_config)
+            {
+                return Ok(image);
+            }
+        }
+    }
+
+    // Try without size directories
+    for ext in &extensions {
+        let path = format!("/usr/share/pixmaps/{}.{}", icon_name, ext);
+        if std::path::Path::new(&path).exists()
+            && let Ok(image) = load_and_resize_icon(&path, icon_config)
+        {
+            return Ok(image);
+        }
+    }
+
+    Err(FerrousFocusError::Platform(format!(
+        "Icon not found: {}",
+        icon_name
+    )))
+}
+
+/// Search through a theme directory for the process icon
+fn search_theme_directory(
+    theme_path: &str,
+    process_name: &str,
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
+    let sizes = ["256x256", "128x128", "64x64", "48x48", "32x32"];
+    let categories = ["apps", "applications"];
+    let extensions = ["png", "svg", "xpm"];
+
+    for size in &sizes {
+        for category in &categories {
+            for ext in &extensions {
+                let path = format!(
+                    "{}/{}/{}/{}.{}",
+                    theme_path, size, category, process_name, ext
+                );
+                if std::path::Path::new(&path).exists()
+                    && let Ok(image) = load_and_resize_icon(&path, icon_config)
+                {
+                    return Ok(image);
+                }
+            }
+        }
+    }
+
+    Err(FerrousFocusError::Platform(
+        "No icon found in theme directory".to_string(),
+    ))
+}
+
+/// Load an icon file and resize it according to the configuration
+fn load_and_resize_icon(
+    icon_path: &str,
+    icon_config: &crate::config::IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
+    // Handle SVG files (which require special processing)
+    if icon_path.ends_with(".svg") {
+        return Err(FerrousFocusError::Platform(
+            "SVG icons not supported yet".to_string(),
+        ));
+    }
+
+    // Load the icon
+    let image = image::open(icon_path).map_err(|e| {
+        FerrousFocusError::Platform(format!("Failed to load icon {}: {}", icon_path, e))
+    })?;
+
+    let rgba_image = image.to_rgba8();
+
+    // Resize if needed
+    if let Some(target_size) = icon_config.size {
+        Ok(resize_icon(rgba_image, target_size))
+    } else {
+        Ok(rgba_image)
+    }
 }

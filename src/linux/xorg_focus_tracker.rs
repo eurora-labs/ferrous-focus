@@ -1,6 +1,9 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
+
+#[cfg(feature = "async")]
+use std::future::Future;
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -28,6 +31,97 @@ where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
     run(on_focus, Some(stop_signal), config)
+}
+
+#[cfg(feature = "async")]
+pub async fn track_focus_async<F, Fut>(
+    on_focus: F,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    run_async(on_focus, None, config).await
+}
+
+#[cfg(feature = "async")]
+async fn run_async<F, Fut>(
+    mut on_focus: F,
+    stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    // ── X11 setup ──────────────────────────────────────────────────────────────
+    let (conn, screen_num) = connect_to_x11()?;
+    let screen = &conn.setup().roots[screen_num];
+    let root = screen.root;
+
+    let atoms = setup_atoms(&conn)?;
+    setup_root_window_monitoring(&conn, root)?;
+
+    // Track the currently focused window to monitor its title changes
+    let mut current_focused_window: Option<u32> = None;
+
+    // ── Event loop ─────────────────────────────────────────────────────────────
+    loop {
+        // Check stop signal before polling for events
+        if should_stop(stop_signal) {
+            break;
+        }
+
+        let event = get_next_event_async(&conn, stop_signal, config).await?;
+
+        if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
+            let mut should_emit_focus_event = false;
+            let mut new_window: Option<u32> = None;
+
+            // Check if this is an active window change
+            if atom == atoms.net_active_window && window == root {
+                // Active window changed
+                match get_active_window(&conn, root, atoms.net_active_window) {
+                    Ok(win) => {
+                        new_window = win;
+                        should_emit_focus_event = true;
+
+                        // Update monitoring for the new focused window
+                        update_window_monitoring(&conn, &mut current_focused_window, new_window);
+                    }
+                    Err(e) => {
+                        info!("Failed to get active window: {}", e);
+                        continue;
+                    }
+                }
+            }
+            // Check if this is a title change on the currently focused window
+            else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
+                // Title changed on the focused window
+                new_window = current_focused_window;
+                should_emit_focus_event = true;
+            }
+
+            if should_emit_focus_event && let Some(window) = new_window {
+                match get_focused_window_info(&conn, window, &atoms, &config.icon) {
+                    Ok(focused_window) => {
+                        if let Err(e) = on_focus(focused_window).await {
+                            info!("Focus event handler failed: {}", e);
+                            // Continue processing instead of propagating the error
+                        }
+                    }
+                    Err(e) => {
+                        info!("Failed to get window info for window {}: {}", window, e);
+                    }
+                }
+            }
+        }
+
+        flush_connection(&conn)?;
+    }
+
+    Ok(())
 }
 
 fn run<F>(
@@ -164,6 +258,48 @@ fn setup_root_window_monitoring<C: Connection>(conn: &C, root: u32) -> FerrousFo
         .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
 
     Ok(())
+}
+
+/// Get the next X11 event, handling both polling and blocking modes (async version).
+#[cfg(feature = "async")]
+async fn get_next_event_async<C: Connection>(
+    conn: &C,
+    stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<Event> {
+    match stop_signal {
+        Some(_) => {
+            // Use polling when stop signal is available
+            loop {
+                match conn.poll_for_event() {
+                    Ok(Some(e)) => return Ok(e),
+                    Ok(None) => {
+                        // No event available, sleep briefly to avoid busy waiting
+                        tokio::time::sleep(config.poll_interval).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        info!("X11 error: {e}");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                }
+            }
+        }
+        None => {
+            // Use blocking wait when no stop signal
+            loop {
+                match conn.wait_for_event() {
+                    Ok(e) => return Ok(e),
+                    Err(e) => {
+                        info!("X11 error: {e}");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Get the next X11 event, handling both polling and blocking modes.

@@ -1,5 +1,8 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(feature = "async")]
+use std::future::Future;
 use windows_sys::Win32::{
     Foundation::{HWND, WPARAM},
     Graphics::Gdi::{
@@ -41,6 +44,124 @@ impl ImplFocusTracker {
         F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
     {
         self.run(on_focus, Some(stop_signal), config)
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn track_focus_async<F, Fut>(
+        &self,
+        on_focus: F,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        self.run_async(on_focus, None, config).await
+    }
+
+    #[cfg(feature = "async")]
+    async fn run_async<F, Fut>(
+        &self,
+        mut on_focus: F,
+        stop_signal: Option<&AtomicBool>,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        // Check if we're in an interactive session
+        if !utils::is_interactive_session()? {
+            return Err(FerrousFocusError::NotInteractiveSession);
+        }
+
+        // Track the previously focused window to avoid duplicate events
+        let mut prev_hwnd: Option<HWND> = None;
+        let mut prev_title: Option<String> = None;
+
+        // Get initial focused window
+        if let Some(hwnd) = utils::get_foreground_window()
+            && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
+        {
+            let icon = get_window_icon(hwnd, &config.icon);
+            let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
+            if let Err(e) = on_focus(FocusedWindow {
+                process_id: Some(process_id),
+                process_name: Some(process.clone()),
+                window_title: Some(title.clone()),
+                icon,
+            })
+            .await
+            {
+                info!("Focus event handler failed: {}", e);
+            }
+
+            prev_hwnd = Some(hwnd);
+            prev_title = Some(title);
+        }
+
+        // Main event loop - we'll use polling since Windows event hooks are complex to integrate
+        // with Rust's async runtime in a cross-platform way
+        loop {
+            // Check stop signal before processing
+            if let Some(stop) = stop_signal
+                && stop.load(Ordering::Relaxed)
+            {
+                break;
+            }
+
+            // Check current foreground window
+            if let Some(current_hwnd) = utils::get_foreground_window() {
+                let focus_changed = match prev_hwnd {
+                    Some(prev) => prev != current_hwnd,
+                    None => true,
+                };
+
+                match unsafe { utils::get_window_info(current_hwnd) } {
+                    Ok((title, process)) => {
+                        // Also check if title changed for the same window
+                        let title_changed = match &prev_title {
+                            Some(prev_t) => prev_t != &title,
+                            None => true,
+                        };
+
+                        // Trigger handler if either window focus or title has changed
+                        if focus_changed || title_changed {
+                            let icon = get_window_icon(current_hwnd, &config.icon);
+                            let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
+                                .unwrap_or_default();
+                            if let Err(e) = on_focus(FocusedWindow {
+                                process_id: Some(process_id),
+                                process_name: Some(process.clone()),
+                                window_title: Some(title.clone()),
+                                icon,
+                            })
+                            .await
+                            {
+                                info!("Focus event handler failed: {}", e);
+                            }
+
+                            prev_hwnd = Some(current_hwnd);
+                            prev_title = Some(title);
+                        }
+                    }
+                    Err(e) => {
+                        info!("Failed to get window info: {}", e);
+                    }
+                }
+            } else {
+                // No foreground window
+                if prev_hwnd.is_some() {
+                    prev_hwnd = None;
+                    prev_title = None;
+                }
+            }
+
+            // Sleep to avoid high CPU usage (async version)
+            tokio::time::sleep(config.poll_interval).await;
+        }
+
+        Ok(())
     }
 
     fn run<F>(

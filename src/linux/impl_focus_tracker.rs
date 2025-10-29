@@ -2,6 +2,9 @@ use super::{utils::wayland_detect, xorg_focus_tracker};
 use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::AtomicBool;
 
+#[cfg(feature = "async")]
+use std::future::Future;
+
 #[derive(Debug, Clone)]
 pub struct ImplFocusTracker {}
 
@@ -38,6 +41,24 @@ impl ImplFocusTracker {
             Err(FerrousFocusError::Unsupported)
         } else {
             xorg_focus_tracker::track_focus_with_stop(on_focus, stop_signal, config)
+        }
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn track_focus_async<F, Fut>(
+        &self,
+        on_focus: F,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        if wayland_detect() {
+            // Wayland is not supported for the time being
+            Err(FerrousFocusError::Unsupported)
+        } else {
+            xorg_focus_tracker::track_focus_async(on_focus, config).await
         }
     }
 }

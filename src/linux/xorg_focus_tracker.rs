@@ -55,73 +55,155 @@ where
     F: FnMut(FocusedWindow) -> Fut,
     Fut: Future<Output = FerrousFocusResult<()>>,
 {
-    // ── X11 setup ──────────────────────────────────────────────────────────────
-    let (conn, screen_num) = connect_to_x11()?;
-    let screen = &conn.setup().roots[screen_num];
-    let root = screen.root;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
 
-    let atoms = setup_atoms(&conn)?;
-    setup_root_window_monitoring(&conn, root)?;
+    // Note: External stop_signal is not supported in async mode.
+    // Users should cancel/drop the async task to stop it.
+    // The parameter is kept for API consistency but ignored.
+    let _ = stop_signal;
 
-    // Track the currently focused window to monitor its title changes
-    let mut current_focused_window: Option<u32> = None;
+    // Create a channel for communicating focus events from blocking thread to async context
+    let (tx, mut rx) = mpsc::unbounded_channel::<FocusedWindow>();
 
-    // ── Event loop ─────────────────────────────────────────────────────────────
-    loop {
-        // Check stop signal before polling for events
-        if should_stop(stop_signal) {
-            break;
-        }
+    // Clone config for the blocking task
+    let config_clone = config.clone();
 
-        let event = get_next_event_async(&conn, stop_signal, config).await?;
+    // Create an internal stop signal for the thread
+    let internal_stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&internal_stop);
 
-        if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
-            let mut should_emit_focus_event = false;
-            let mut new_window: Option<u32> = None;
+    // Spawn a dedicated thread for X11 operations (X11 is inherently blocking)
+    let thread_handle = std::thread::spawn(move || -> FerrousFocusResult<()> {
+        // ── X11 setup ──────────────────────────────────────────────────────────────
+        let (conn, screen_num) = connect_to_x11()?;
+        let screen = &conn.setup().roots[screen_num];
+        let root = screen.root;
 
-            // Check if this is an active window change
-            if atom == atoms.net_active_window && window == root {
-                // Active window changed
-                match get_active_window(&conn, root, atoms.net_active_window) {
-                    Ok(win) => {
-                        new_window = win;
-                        should_emit_focus_event = true;
+        let atoms = setup_atoms(&conn)?;
+        setup_root_window_monitoring(&conn, root)?;
 
-                        // Update monitoring for the new focused window
-                        update_window_monitoring(&conn, &mut current_focused_window, new_window);
-                    }
-                    Err(e) => {
-                        info!("Failed to get active window: {}", e);
-                        continue;
-                    }
+        // Track the currently focused window to monitor its title changes
+        let mut current_focused_window: Option<u32> = None;
+
+        // ── Event loop ─────────────────────────────────────────────────────────────
+        loop {
+            // Check internal stop signal
+            if thread_stop.load(Ordering::Acquire) {
+                break;
+            }
+
+            // Use non-blocking poll to allow checking stop signal
+            let event = match conn.poll_for_event() {
+                Ok(Some(e)) => e,
+                Ok(None) => {
+                    // No event available, sleep briefly
+                    std::thread::sleep(config_clone.poll_interval);
+                    continue;
                 }
-            }
-            // Check if this is a title change on the currently focused window
-            else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
-                // Title changed on the focused window
-                new_window = current_focused_window;
-                should_emit_focus_event = true;
-            }
+                Err(e) => {
+                    info!("X11 error: {e}");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
-            if should_emit_focus_event && let Some(window) = new_window {
-                match get_focused_window_info(&conn, window, &atoms, &config.icon) {
-                    Ok(focused_window) => {
-                        if let Err(e) = on_focus(focused_window).await {
-                            info!("Focus event handler failed: {}", e);
-                            // Continue processing instead of propagating the error
+            if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
+                let mut should_emit_focus_event = false;
+                let mut new_window: Option<u32> = None;
+
+                // Check if this is an active window change
+                if atom == atoms.net_active_window && window == root {
+                    // Active window changed
+                    match get_active_window(&conn, root, atoms.net_active_window) {
+                        Ok(win) => {
+                            new_window = win;
+                            should_emit_focus_event = true;
+
+                            // Update monitoring for the new focused window
+                            update_window_monitoring(
+                                &conn,
+                                &mut current_focused_window,
+                                new_window,
+                            );
+                        }
+                        Err(e) => {
+                            info!("Failed to get active window: {}", e);
+                            continue;
                         }
                     }
-                    Err(e) => {
-                        info!("Failed to get window info for window {}: {}", window, e);
+                }
+                // Check if this is a title change on the currently focused window
+                else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
+                    // Title changed on the focused window
+                    new_window = current_focused_window;
+                    should_emit_focus_event = true;
+                }
+
+                if should_emit_focus_event && let Some(window) = new_window {
+                    match get_focused_window_info(&conn, window, &atoms, &config_clone.icon) {
+                        Ok(focused_window) => {
+                            // Send to async context via channel
+                            if tx.send(focused_window).is_err() {
+                                // Channel closed, async task has been dropped
+                                info!("Async task dropped, stopping X11 event loop");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            info!("Failed to get window info for window {}: {}", window, e);
+                        }
                     }
                 }
             }
+
+            if let Err(e) = flush_connection(&conn) {
+                info!("Failed to flush connection: {}", e);
+            }
         }
 
-        flush_connection(&conn)?;
-    }
+        Ok(())
+    });
 
-    Ok(())
+    // Process focus events in async context
+    // When this task is cancelled (dropped), cleanup will happen via the guard below
+    let result = async {
+        while let Some(focused_window) = rx.recv().await {
+            if let Err(e) = on_focus(focused_window).await {
+                info!("Focus event handler failed: {}", e);
+                // Continue processing instead of propagating the error
+            }
+        }
+        Ok::<(), FerrousFocusError>(())
+    }
+    .await;
+
+    // Signal the X11 thread to stop (this runs whether we complete normally or get cancelled)
+    info!("Async task ending, signaling X11 thread to stop");
+    internal_stop.store(true, Ordering::Release);
+
+    // Drop the receiver to close the channel, which will also signal the thread
+    drop(rx);
+
+    // Give the thread a brief moment to notice the stop signal and exit cleanly
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Wait for thread to finish and get result
+    match thread_handle.join() {
+        Ok(Ok(())) => {
+            info!("X11 event loop completed successfully");
+            result
+        }
+        Ok(Err(e)) => {
+            info!("X11 event loop error: {}", e);
+            Err(e)
+        }
+        Err(_) => {
+            let err_msg = "X11 thread panicked";
+            info!("{}", err_msg);
+            Err(FerrousFocusError::Platform(err_msg.to_string()))
+        }
+    }
 }
 
 fn run<F>(
@@ -258,48 +340,6 @@ fn setup_root_window_monitoring<C: Connection>(conn: &C, root: u32) -> FerrousFo
         .map_err(|e| FerrousFocusError::Platform(e.to_string()))?;
 
     Ok(())
-}
-
-/// Get the next X11 event, handling both polling and blocking modes (async version).
-#[cfg(feature = "async")]
-async fn get_next_event_async<C: Connection>(
-    conn: &C,
-    stop_signal: Option<&AtomicBool>,
-    config: &FocusTrackerConfig,
-) -> FerrousFocusResult<Event> {
-    match stop_signal {
-        Some(_) => {
-            // Use polling when stop signal is available
-            loop {
-                match conn.poll_for_event() {
-                    Ok(Some(e)) => return Ok(e),
-                    Ok(None) => {
-                        // No event available, sleep briefly to avoid busy waiting
-                        tokio::time::sleep(config.poll_interval).await;
-                        continue;
-                    }
-                    Err(e) => {
-                        info!("X11 error: {e}");
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                }
-            }
-        }
-        None => {
-            // Use blocking wait when no stop signal
-            loop {
-                match conn.wait_for_event() {
-                    Ok(e) => return Ok(e),
-                    Err(e) => {
-                        info!("X11 error: {e}");
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// Get the next X11 event, handling both polling and blocking modes.

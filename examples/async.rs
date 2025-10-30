@@ -11,6 +11,10 @@
 #[cfg(feature = "async")]
 use ferrous_focus::{FerrousFocusResult, FocusTracker};
 #[cfg(feature = "async")]
+use std::sync::Arc;
+#[cfg(feature = "async")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "async")]
 use std::time::Duration;
 
 #[cfg(feature = "async")]
@@ -19,48 +23,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    println!("🚀 Starting async focus tracker example...");
+    println!("🚀 Starting async focus tracker example with stop signal...");
     println!("This example demonstrates awaiting async operations in focus callbacks.");
-    println!("Switch between different applications to see focus changes.");
-    println!("Press Ctrl+C to exit.\n");
+    println!("It will automatically stop after 10 seconds.");
+    println!("Switch between different applications to see focus changes.\n");
 
     let tracker = FocusTracker::new();
 
-    // Use the async focus tracking method
+    // Create a stop signal
+    let stop_signal = Arc::new(AtomicBool::new(false));
+
+    // Set up automatic timeout after 10 seconds
+    let stop_signal_timeout = Arc::clone(&stop_signal);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        println!("\n⏰ 10 second timeout reached, stopping gracefully...");
+        stop_signal_timeout.store(true, Ordering::Release);
+    });
+
+    // Use the async focus tracking method with stop signal
+    // This demonstrates how you can stop the async tracker from another task
     tracker
-        .track_focus_async(|window| async move {
-            println!(
-                "🔍 Focus changed to: {}",
-                window.window_title.as_deref().unwrap_or("Unknown")
-            );
+        .track_focus_async_with_stop(
+            |window| async move {
+                println!(
+                    "🔍 Focus changed to: {}",
+                    window.window_title.as_deref().unwrap_or("Unknown")
+                );
 
-            if let Some(process_name) = &window.process_name {
-                println!("   📱 Process: {}", process_name);
-            }
+                if let Some(process_name) = &window.process_name {
+                    println!("   📱 Process: {}", process_name);
+                }
 
-            // Check if icon is available
-            let icon_status = if window.icon.is_some() {
-                "✅ Has icon"
-            } else {
-                "❌ No icon"
-            };
-            println!("   Icon: {}", icon_status);
+                // Check if icon is available
+                let icon_status = if window.icon.is_some() {
+                    "✅ Has icon"
+                } else {
+                    "❌ No icon"
+                };
+                println!("   Icon: {}", icon_status);
 
-            // Example 1: Simulate async processing with delays
-            println!("   ⏳ Performing async processing...");
-            simulate_async_processing(&window).await?;
+                // Example 1: Simulate async processing with delays
+                println!("   ⏳ Performing async processing...");
+                simulate_async_processing(&window).await?;
 
-            // Example 2: Async data processing
-            println!("   🔢 Processing window data asynchronously...");
-            process_window_data(&window).await?;
+                // Example 2: Async data processing
+                println!("   🔢 Processing window data asynchronously...");
+                process_window_data(&window).await?;
 
-            println!("   ✨ All async operations complete!\n");
+                println!("   ✨ All async operations complete!\n");
 
-            Ok(())
-        })
+                Ok(())
+            },
+            &stop_signal,
+        )
         .await?;
 
-    println!("👋 Async focus tracking completed!");
+    println!("\n👋 Async focus tracking completed gracefully!");
     Ok(())
 }
 

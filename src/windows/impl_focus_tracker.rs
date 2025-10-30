@@ -60,6 +60,20 @@ impl ImplFocusTracker {
     }
 
     #[cfg(feature = "async")]
+    pub async fn track_focus_async_with_stop<F, Fut>(
+        &self,
+        on_focus: F,
+        stop_signal: &AtomicBool,
+        config: &FocusTrackerConfig,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        self.run_async(on_focus, Some(stop_signal), config).await
+    }
+
+    #[cfg(feature = "async")]
     async fn run_async<F, Fut>(
         &self,
         mut on_focus: F,

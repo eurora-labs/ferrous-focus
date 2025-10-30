@@ -64,6 +64,22 @@ impl FocusTracker {
             .await
     }
 
+    /// Async version of track_focus_with_stop - requires the "async" feature
+    #[cfg(feature = "async")]
+    pub async fn track_focus_async_with_stop<F, Fut>(
+        &self,
+        on_focus: F,
+        stop_signal: &AtomicBool,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        self.impl_focus_tracker
+            .track_focus_async_with_stop(on_focus, stop_signal, &self.config)
+            .await
+    }
+
     /// Subscribe to focus changes and receive them via a channel
     pub fn subscribe_focus_changes(&self) -> FerrousFocusResult<mpsc::Receiver<FocusedWindow>> {
         let (sender, receiver) = mpsc::channel();

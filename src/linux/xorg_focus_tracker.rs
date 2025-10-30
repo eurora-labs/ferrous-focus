@@ -46,6 +46,19 @@ where
 }
 
 #[cfg(feature = "async")]
+pub async fn track_focus_async_with_stop<F, Fut>(
+    on_focus: F,
+    stop_signal: &AtomicBool,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    run_async(on_focus, Some(stop_signal), config).await
+}
+
+#[cfg(feature = "async")]
 async fn run_async<F, Fut>(
     mut on_focus: F,
     stop_signal: Option<&AtomicBool>,
@@ -58,23 +71,19 @@ where
     use std::sync::Arc;
     use tokio::sync::mpsc;
 
-    // Note: External stop_signal is not supported in async mode.
-    // Users should cancel/drop the async task to stop it.
-    // The parameter is kept for API consistency but ignored.
-    let _ = stop_signal;
-
     // Create a channel for communicating focus events from blocking thread to async context
     let (tx, mut rx) = mpsc::unbounded_channel::<FocusedWindow>();
 
     // Clone config for the blocking task
     let config_clone = config.clone();
 
-    // Create an internal stop signal for the thread
+    // Create an internal stop signal for the blocking task
     let internal_stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&internal_stop);
+    let cleanup_stop = Arc::clone(&internal_stop);
 
-    // Spawn a dedicated thread for X11 operations (X11 is inherently blocking)
-    let thread_handle = std::thread::spawn(move || -> FerrousFocusResult<()> {
+    // Spawn a blocking task for X11 operations (X11 is inherently blocking)
+    let blocking_handle = tokio::task::spawn_blocking(move || -> FerrousFocusResult<()> {
         // ── X11 setup ──────────────────────────────────────────────────────────────
         let (conn, screen_num) = connect_to_x11()?;
         let screen = &conn.setup().roots[screen_num];
@@ -88,7 +97,7 @@ where
 
         // ── Event loop ─────────────────────────────────────────────────────────────
         loop {
-            // Check internal stop signal
+            // Check stop signal (either internal or external)
             if thread_stop.load(Ordering::Acquire) {
                 break;
             }
@@ -98,11 +107,13 @@ where
                 Ok(Some(e)) => e,
                 Ok(None) => {
                     // No event available, sleep briefly
+                    // Note: We use std::thread::sleep here because we're in a blocking context
                     std::thread::sleep(config_clone.poll_interval);
                     continue;
                 }
                 Err(e) => {
                     info!("X11 error: {e}");
+                    // Note: We use std::thread::sleep here because we're in a blocking context
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 }
@@ -168,10 +179,31 @@ where
     // Process focus events in async context
     // When this task is cancelled (dropped), cleanup will happen via the guard below
     let result = async {
-        while let Some(focused_window) = rx.recv().await {
-            if let Err(e) = on_focus(focused_window).await {
-                info!("Focus event handler failed: {}", e);
-                // Continue processing instead of propagating the error
+        loop {
+            // Check external stop signal if provided
+            if let Some(external_stop) = stop_signal
+                && external_stop.load(Ordering::Acquire)
+            {
+                info!("External stop signal detected");
+                break;
+            }
+
+            // Use timeout to periodically check the stop signal
+            match tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await {
+                Ok(Some(focused_window)) => {
+                    if let Err(e) = on_focus(focused_window).await {
+                        info!("Focus event handler failed: {}", e);
+                        // Continue processing instead of propagating the error
+                    }
+                }
+                Ok(None) => {
+                    // Channel closed
+                    break;
+                }
+                Err(_) => {
+                    // Timeout - continue to check stop signal
+                    continue;
+                }
             }
         }
         Ok::<(), FerrousFocusError>(())
@@ -180,7 +212,7 @@ where
 
     // Signal the X11 thread to stop (this runs whether we complete normally or get cancelled)
     info!("Async task ending, signaling X11 thread to stop");
-    internal_stop.store(true, Ordering::Release);
+    cleanup_stop.store(true, Ordering::Release);
 
     // Drop the receiver to close the channel, which will also signal the thread
     drop(rx);
@@ -188,8 +220,8 @@ where
     // Give the thread a brief moment to notice the stop signal and exit cleanly
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Wait for thread to finish and get result
-    match thread_handle.join() {
+    // Wait for blocking task to finish and get result
+    match blocking_handle.await {
         Ok(Ok(())) => {
             info!("X11 event loop completed successfully");
             result
@@ -198,10 +230,10 @@ where
             info!("X11 event loop error: {}", e);
             Err(e)
         }
-        Err(_) => {
-            let err_msg = "X11 thread panicked";
+        Err(e) => {
+            let err_msg = format!("X11 blocking task failed: {}", e);
             info!("{}", err_msg);
-            Err(FerrousFocusError::Platform(err_msg.to_string()))
+            Err(FerrousFocusError::Platform(err_msg))
         }
     }
 }

@@ -90,7 +90,8 @@ impl ImplFocusTracker {
         }
 
         // Track the previously focused window to avoid duplicate events
-        let mut prev_hwnd: Option<HWND> = None;
+        // Store HWND as isize to ensure Send trait is satisfied for async contexts
+        let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
 
         // Get initial focused window
@@ -110,7 +111,7 @@ impl ImplFocusTracker {
                 info!("Focus event handler failed: {}", e);
             }
 
-            prev_hwnd = Some(hwnd);
+            prev_hwnd = Some(hwnd as isize);
             prev_title = Some(title);
         }
 
@@ -126,8 +127,9 @@ impl ImplFocusTracker {
 
             // Check current foreground window
             if let Some(current_hwnd) = utils::get_foreground_window() {
+                let current_hwnd_value = current_hwnd as isize;
                 let focus_changed = match prev_hwnd {
-                    Some(prev) => prev != current_hwnd,
+                    Some(prev) => prev != current_hwnd_value,
                     None => true,
                 };
 
@@ -155,7 +157,7 @@ impl ImplFocusTracker {
                                 info!("Focus event handler failed: {}", e);
                             }
 
-                            prev_hwnd = Some(current_hwnd);
+                            prev_hwnd = Some(current_hwnd_value);
                             prev_title = Some(title);
                         }
                     }
@@ -193,7 +195,8 @@ impl ImplFocusTracker {
         }
 
         // Track the previously focused window to avoid duplicate events
-        let mut prev_hwnd: Option<HWND> = None;
+        // Store HWND as isize to ensure Send trait is satisfied for async contexts
+        let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
 
         // Get initial focused window
@@ -211,7 +214,7 @@ impl ImplFocusTracker {
                 info!("Focus event handler failed: {}", e);
             }
 
-            prev_hwnd = Some(hwnd);
+            prev_hwnd = Some(hwnd as isize);
             prev_title = Some(title);
         }
 
@@ -227,8 +230,9 @@ impl ImplFocusTracker {
 
             // Check current foreground window
             if let Some(current_hwnd) = utils::get_foreground_window() {
+                let current_hwnd_value = current_hwnd as isize;
                 let focus_changed = match prev_hwnd {
-                    Some(prev) => prev != current_hwnd,
+                    Some(prev) => prev != current_hwnd_value,
                     None => true,
                 };
 
@@ -254,7 +258,7 @@ impl ImplFocusTracker {
                                 info!("Focus event handler failed: {}", e);
                             }
 
-                            prev_hwnd = Some(current_hwnd);
+                            prev_hwnd = Some(current_hwnd_value);
                             prev_title = Some(title);
                         }
                     }

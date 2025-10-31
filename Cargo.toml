@@ -1,6 +1,6 @@
 [package]
 name = "ferrous-focus"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 authors = ["Eurora Labs <contact@eurora-labs.com>"]
 license = "Apache-2.0"

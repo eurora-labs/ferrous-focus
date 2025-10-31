@@ -1,6 +1,9 @@
 use crate::{FerrousFocusError, FerrousFocusResult, FocusTrackerConfig, FocusedWindow};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
+
+#[cfg(feature = "async")]
+use std::future::Future;
 use x11rb::{
     connection::Connection,
     protocol::{
@@ -28,6 +31,211 @@ where
     F: FnMut(FocusedWindow) -> FerrousFocusResult<()>,
 {
     run(on_focus, Some(stop_signal), config)
+}
+
+#[cfg(feature = "async")]
+pub async fn track_focus_async<F, Fut>(
+    on_focus: F,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    run_async(on_focus, None, config).await
+}
+
+#[cfg(feature = "async")]
+pub async fn track_focus_async_with_stop<F, Fut>(
+    on_focus: F,
+    stop_signal: &AtomicBool,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    run_async(on_focus, Some(stop_signal), config).await
+}
+
+#[cfg(feature = "async")]
+async fn run_async<F, Fut>(
+    mut on_focus: F,
+    stop_signal: Option<&AtomicBool>,
+    config: &FocusTrackerConfig,
+) -> FerrousFocusResult<()>
+where
+    F: FnMut(FocusedWindow) -> Fut,
+    Fut: Future<Output = FerrousFocusResult<()>>,
+{
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    // Create a channel for communicating focus events from blocking thread to async context
+    let (tx, mut rx) = mpsc::unbounded_channel::<FocusedWindow>();
+
+    // Clone config for the blocking task
+    let config_clone = config.clone();
+
+    // Create an internal stop signal for the blocking task
+    let internal_stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&internal_stop);
+    let cleanup_stop = Arc::clone(&internal_stop);
+
+    // Spawn a blocking task for X11 operations (X11 is inherently blocking)
+    let blocking_handle = tokio::task::spawn_blocking(move || -> FerrousFocusResult<()> {
+        // ── X11 setup ──────────────────────────────────────────────────────────────
+        let (conn, screen_num) = connect_to_x11()?;
+        let screen = &conn.setup().roots[screen_num];
+        let root = screen.root;
+
+        let atoms = setup_atoms(&conn)?;
+        setup_root_window_monitoring(&conn, root)?;
+
+        // Track the currently focused window to monitor its title changes
+        let mut current_focused_window: Option<u32> = None;
+
+        // ── Event loop ─────────────────────────────────────────────────────────────
+        loop {
+            // Check stop signal (either internal or external)
+            if thread_stop.load(Ordering::Acquire) {
+                break;
+            }
+
+            // Use non-blocking poll to allow checking stop signal
+            let event = match conn.poll_for_event() {
+                Ok(Some(e)) => e,
+                Ok(None) => {
+                    // No event available, sleep briefly
+                    // Note: We use std::thread::sleep here because we're in a blocking context
+                    std::thread::sleep(config_clone.poll_interval);
+                    continue;
+                }
+                Err(e) => {
+                    info!("X11 error: {e}");
+                    // Note: We use std::thread::sleep here because we're in a blocking context
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
+                let mut should_emit_focus_event = false;
+                let mut new_window: Option<u32> = None;
+
+                // Check if this is an active window change
+                if atom == atoms.net_active_window && window == root {
+                    // Active window changed
+                    match get_active_window(&conn, root, atoms.net_active_window) {
+                        Ok(win) => {
+                            new_window = win;
+                            should_emit_focus_event = true;
+
+                            // Update monitoring for the new focused window
+                            update_window_monitoring(
+                                &conn,
+                                &mut current_focused_window,
+                                new_window,
+                            );
+                        }
+                        Err(e) => {
+                            info!("Failed to get active window: {}", e);
+                            continue;
+                        }
+                    }
+                }
+                // Check if this is a title change on the currently focused window
+                else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
+                    // Title changed on the focused window
+                    new_window = current_focused_window;
+                    should_emit_focus_event = true;
+                }
+
+                if should_emit_focus_event && let Some(window) = new_window {
+                    match get_focused_window_info(&conn, window, &atoms, &config_clone.icon) {
+                        Ok(focused_window) => {
+                            // Send to async context via channel
+                            if tx.send(focused_window).is_err() {
+                                // Channel closed, async task has been dropped
+                                info!("Async task dropped, stopping X11 event loop");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            info!("Failed to get window info for window {}: {}", window, e);
+                        }
+                    }
+                }
+            }
+
+            if let Err(e) = flush_connection(&conn) {
+                info!("Failed to flush connection: {}", e);
+            }
+        }
+
+        Ok(())
+    });
+
+    // Process focus events in async context
+    // When this task is cancelled (dropped), cleanup will happen via the guard below
+    let result = async {
+        loop {
+            // Check external stop signal if provided
+            if let Some(external_stop) = stop_signal
+                && external_stop.load(Ordering::Acquire)
+            {
+                info!("External stop signal detected");
+                break;
+            }
+
+            // Use timeout to periodically check the stop signal
+            match tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await {
+                Ok(Some(focused_window)) => {
+                    if let Err(e) = on_focus(focused_window).await {
+                        info!("Focus event handler failed: {}", e);
+                        // Continue processing instead of propagating the error
+                    }
+                }
+                Ok(None) => {
+                    // Channel closed
+                    break;
+                }
+                Err(_) => {
+                    // Timeout - continue to check stop signal
+                    continue;
+                }
+            }
+        }
+        Ok::<(), FerrousFocusError>(())
+    }
+    .await;
+
+    // Signal the X11 thread to stop (this runs whether we complete normally or get cancelled)
+    info!("Async task ending, signaling X11 thread to stop");
+    cleanup_stop.store(true, Ordering::Release);
+
+    // Drop the receiver to close the channel, which will also signal the thread
+    drop(rx);
+
+    // Give the thread a brief moment to notice the stop signal and exit cleanly
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Wait for blocking task to finish and get result
+    match blocking_handle.await {
+        Ok(Ok(())) => {
+            info!("X11 event loop completed successfully");
+            result
+        }
+        Ok(Err(e)) => {
+            info!("X11 event loop error: {}", e);
+            Err(e)
+        }
+        Err(e) => {
+            let err_msg = format!("X11 blocking task failed: {}", e);
+            info!("{}", err_msg);
+            Err(FerrousFocusError::Platform(err_msg))
+        }
+    }
 }
 
 fn run<F>(

@@ -4,6 +4,9 @@ use crate::{
 };
 use std::sync::{atomic::AtomicBool, mpsc};
 
+#[cfg(feature = "async")]
+use std::future::Future;
+
 #[derive(Debug, Clone)]
 pub struct FocusTracker {
     impl_focus_tracker: ImplFocusTracker,
@@ -47,6 +50,34 @@ impl FocusTracker {
     {
         self.impl_focus_tracker
             .track_focus_with_stop(on_focus, stop_signal, &self.config)
+    }
+
+    /// Async version of track_focus - requires the "async" feature
+    #[cfg(feature = "async")]
+    pub async fn track_focus_async<F, Fut>(&self, on_focus: F) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        self.impl_focus_tracker
+            .track_focus_async(on_focus, &self.config)
+            .await
+    }
+
+    /// Async version of track_focus_with_stop - requires the "async" feature
+    #[cfg(feature = "async")]
+    pub async fn track_focus_async_with_stop<F, Fut>(
+        &self,
+        on_focus: F,
+        stop_signal: &AtomicBool,
+    ) -> FerrousFocusResult<()>
+    where
+        F: FnMut(FocusedWindow) -> Fut,
+        Fut: Future<Output = FerrousFocusResult<()>>,
+    {
+        self.impl_focus_tracker
+            .track_focus_async_with_stop(on_focus, stop_signal, &self.config)
+            .await
     }
 
     /// Subscribe to focus changes and receive them via a channel

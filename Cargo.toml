@@ -1,6 +1,6 @@
 [package]
 name = "ferrous-focus"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 authors = ["Eurora Labs <contact@eurora-labs.com>"]
 license = "Apache-2.0"
@@ -24,6 +24,18 @@ thiserror = "2.0.12"
 tracing = "0.1.41"
 image = "0.25.2"
 base64 = "0.22"
+
+# Optional async dependencies
+tokio = { version = "1", features = [
+    "time",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "io-util",
+    "sync",
+], optional = true }
+
 
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = "0.13.1"
@@ -56,3 +68,5 @@ image = "0.25.2"
 winit = "0.30.5"
 ctrlc = "3.4.5"
 base64 = "0.22"
+[features]
+async = ["tokio"]

@@ -167,7 +167,7 @@ impl ImplFocusTracker {
         }
 
         // Track the previously focused window to avoid duplicate events
-        // Store HWND as isize to ensure Send trait is satisfied for async contexts
+        // Store HWND as isize for consistency with async path
         let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
 

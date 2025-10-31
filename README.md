@@ -22,7 +22,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ferrous-focus = "0.4.0"
+ferrous-focus = "0.4.1"
 ```
 
 For async support:

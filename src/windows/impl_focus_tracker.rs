@@ -90,28 +90,18 @@ impl ImplFocusTracker {
         }
 
         // Track the previously focused window to avoid duplicate events
-        let mut prev_hwnd: Option<HWND> = None;
+        // Store HWND as isize to ensure Send trait is satisfied for async contexts
+        let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
 
-        // Get initial focused window
-        if let Some(hwnd) = utils::get_foreground_window()
-            && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
-        {
-            let icon = get_window_icon(hwnd, &config.icon);
-            let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
-            if let Err(e) = on_focus(FocusedWindow {
-                process_id: Some(process_id),
-                process_name: Some(process.clone()),
-                window_title: Some(title.clone()),
-                icon,
-            })
-            .await
-            {
+        // Get initial focused window - use helper function to avoid non-Send types
+        if let Some(window_info) = get_current_focused_window_info(&config.icon) {
+            if let Err(e) = on_focus(window_info.focused_window).await {
                 info!("Focus event handler failed: {}", e);
             }
 
-            prev_hwnd = Some(hwnd);
-            prev_title = Some(title);
+            prev_hwnd = Some(window_info.hwnd_value);
+            prev_title = Some(window_info.title);
         }
 
         // Main event loop - we'll use polling since Windows event hooks are complex to integrate
@@ -124,44 +114,28 @@ impl ImplFocusTracker {
                 break;
             }
 
-            // Check current foreground window
-            if let Some(current_hwnd) = utils::get_foreground_window() {
+            // Check current foreground window - use helper function to avoid non-Send types
+            if let Some(window_info) = get_current_focused_window_info(&config.icon) {
+                let current_hwnd_value = window_info.hwnd_value;
                 let focus_changed = match prev_hwnd {
-                    Some(prev) => prev != current_hwnd,
+                    Some(prev) => prev != current_hwnd_value,
                     None => true,
                 };
 
-                match unsafe { utils::get_window_info(current_hwnd) } {
-                    Ok((title, process)) => {
-                        // Also check if title changed for the same window
-                        let title_changed = match &prev_title {
-                            Some(prev_t) => prev_t != &title,
-                            None => true,
-                        };
+                // Also check if title changed for the same window
+                let title_changed = match &prev_title {
+                    Some(prev_t) => prev_t != &window_info.title,
+                    None => true,
+                };
 
-                        // Trigger handler if either window focus or title has changed
-                        if focus_changed || title_changed {
-                            let icon = get_window_icon(current_hwnd, &config.icon);
-                            let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
-                                .unwrap_or_default();
-                            if let Err(e) = on_focus(FocusedWindow {
-                                process_id: Some(process_id),
-                                process_name: Some(process.clone()),
-                                window_title: Some(title.clone()),
-                                icon,
-                            })
-                            .await
-                            {
-                                info!("Focus event handler failed: {}", e);
-                            }
+                // Trigger handler if either window focus or title has changed
+                if focus_changed || title_changed {
+                    if let Err(e) = on_focus(window_info.focused_window).await {
+                        info!("Focus event handler failed: {}", e);
+                    }
 
-                            prev_hwnd = Some(current_hwnd);
-                            prev_title = Some(title);
-                        }
-                    }
-                    Err(e) => {
-                        info!("Failed to get window info: {}", e);
-                    }
+                    prev_hwnd = Some(current_hwnd_value);
+                    prev_title = Some(window_info.title);
                 }
             } else {
                 // No foreground window
@@ -193,7 +167,8 @@ impl ImplFocusTracker {
         }
 
         // Track the previously focused window to avoid duplicate events
-        let mut prev_hwnd: Option<HWND> = None;
+        // Store HWND as isize for consistency with async path
+        let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
 
         // Get initial focused window
@@ -211,7 +186,7 @@ impl ImplFocusTracker {
                 info!("Focus event handler failed: {}", e);
             }
 
-            prev_hwnd = Some(hwnd);
+            prev_hwnd = Some(hwnd as isize);
             prev_title = Some(title);
         }
 
@@ -227,8 +202,9 @@ impl ImplFocusTracker {
 
             // Check current foreground window
             if let Some(current_hwnd) = utils::get_foreground_window() {
+                let current_hwnd_value = current_hwnd as isize;
                 let focus_changed = match prev_hwnd {
-                    Some(prev) => prev != current_hwnd,
+                    Some(prev) => prev != current_hwnd_value,
                     None => true,
                 };
 
@@ -254,7 +230,7 @@ impl ImplFocusTracker {
                                 info!("Focus event handler failed: {}", e);
                             }
 
-                            prev_hwnd = Some(current_hwnd);
+                            prev_hwnd = Some(current_hwnd_value);
                             prev_title = Some(title);
                         }
                     }
@@ -281,6 +257,35 @@ impl ImplFocusTracker {
 /* ------------------------------------------------------------ */
 /* Helper functions                                              */
 /* ------------------------------------------------------------ */
+
+/// Helper struct to hold window information with Send-safe types
+struct WindowInfo {
+    hwnd_value: isize,
+    title: String,
+    focused_window: FocusedWindow,
+}
+
+/// Get current focused window info, returning only Send-safe types
+/// This helper ensures no HWND pointers leak into async contexts
+fn get_current_focused_window_info(icon_config: &crate::config::IconConfig) -> Option<WindowInfo> {
+    let hwnd = utils::get_foreground_window()?;
+    let hwnd_value = hwnd as isize;
+
+    let (title, process) = unsafe { utils::get_window_info(hwnd) }.ok()?;
+    let icon = get_window_icon(hwnd, icon_config);
+    let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
+
+    Some(WindowInfo {
+        hwnd_value,
+        title: title.clone(),
+        focused_window: FocusedWindow {
+            process_id: Some(process_id),
+            process_name: Some(process),
+            window_title: Some(title),
+            icon,
+        },
+    })
+}
 
 /// Resize an image to the specified dimensions using Lanczos3 filtering
 fn resize_icon(image: image::RgbaImage, target_size: u32) -> image::RgbaImage {

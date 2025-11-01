@@ -47,7 +47,7 @@ objc2-app-kit = "0.3.1"
 objc2-core-foundation = "0.3.1"
 objc2-foundation = "0.3.1"
 cocoa = "0.25"
-core-foundation = "0.9"
+core-foundation = "0.10"
 core-graphics = "0.23"
 accessibility-sys = "0.1"
 

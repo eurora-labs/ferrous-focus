@@ -288,15 +288,17 @@ fn get_current_focused_window_info(icon_config: &crate::config::IconConfig) -> O
 }
 
 /// Resize an image to the specified dimensions using Lanczos3 filtering
-fn resize_icon(image: image::RgbaImage, target_size: u32) -> image::RgbaImage {
-    use image::imageops::FilterType;
-
+fn resize_icon(
+    image: image::RgbaImage,
+    target_size: u32,
+    filter_type: image::imageops::FilterType,
+) -> image::RgbaImage {
     // Only resize if the image is not already the target size
     if image.width() == target_size && image.height() == target_size {
         return image;
     }
 
-    image::imageops::resize(&image, target_size, target_size, FilterType::Lanczos3)
+    image::imageops::resize(&image, target_size, target_size, filter_type)
 }
 
 /// Get the icon for a window
@@ -500,7 +502,7 @@ unsafe fn extract_window_icon(
 
     // Resize the icon if needed
     if let Some(target_size) = icon_config.size {
-        image = resize_icon(image, target_size);
+        image = resize_icon(image, target_size, icon_config.filter_type);
     }
 
     Ok(image)

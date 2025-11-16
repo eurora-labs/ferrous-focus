@@ -1,11 +1,23 @@
 use std::time::Duration;
 
 /// Configuration for icon processing behavior
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct IconConfig {
     /// Target size for icons (width and height will be equal)
     /// Default: None (use platform default size)
     pub size: Option<u32>,
+
+    /// The algorithm to use for icon scaling, supports Windows and Linux x11
+    pub filter_type: image::imageops::FilterType,
+}
+
+impl Default for IconConfig {
+    fn default() -> Self {
+        Self {
+            size: None,
+            filter_type: image::imageops::FilterType::Lanczos3,
+        }
+    }
 }
 
 impl IconConfig {

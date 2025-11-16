@@ -631,16 +631,18 @@ fn get_process_info<C: Connection>(
     Ok((pid, process_name))
 }
 
-/// Resize an image to the specified dimensions using Lanczos3 filtering
-fn resize_icon(image: image::RgbaImage, target_size: u32) -> image::RgbaImage {
-    use image::imageops::FilterType;
-
+/// Resize an image to the specified dimensions using the specified filter type
+fn resize_icon(
+    image: image::RgbaImage,
+    target_size: u32,
+    filter_type: image::imageops::FilterType,
+) -> image::RgbaImage {
     // Only resize if the image is not already the target size
     if image.width() == target_size && image.height() == target_size {
         return image;
     }
 
-    image::imageops::resize(&image, target_size, target_size, FilterType::Lanczos3)
+    image::imageops::resize(&image, target_size, target_size, filter_type)
 }
 
 /// Get icon data for a window and return it as an image::RgbaImage.
@@ -732,7 +734,7 @@ fn get_icon_data<C: Connection>(
 
     // Resize the icon if needed
     if let Some(target_size) = icon_config.size {
-        image = resize_icon(image, target_size);
+        image = resize_icon(image, target_size, icon_config.filter_type);
     }
 
     Ok(image)

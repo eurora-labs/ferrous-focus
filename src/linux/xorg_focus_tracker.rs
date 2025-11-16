@@ -95,6 +95,31 @@ where
         // Track the currently focused window to monitor its title changes
         let mut current_focused_window: Option<u32> = None;
 
+        // ── Get initial focused window ─────────────────────────────────────────────
+        // Fire an immediate event with the currently focused window (like Windows/macOS)
+        if let Ok(Some(window)) = get_active_window(&conn, root, atoms.net_active_window) {
+            match get_focused_window_info(&conn, window, &atoms, &config_clone.icon) {
+                Ok(focused_window) => {
+                    // Send initial window info to async context via channel
+                    if tx.send(focused_window).is_err() {
+                        // Channel closed, async task has been dropped
+                        info!("Async task dropped before initial event, stopping X11 event loop");
+                        return Ok(());
+                    }
+                    // Set up monitoring for this window
+                    current_focused_window = Some(window);
+                    let _ = conn.change_window_attributes(
+                        window,
+                        &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+                    );
+                    let _ = flush_connection(&conn);
+                }
+                Err(e) => {
+                    info!("Failed to get initial window info: {}", e);
+                }
+            }
+        }
+
         // ── Event loop ─────────────────────────────────────────────────────────────
         loop {
             // Check stop signal (either internal or external)
@@ -256,6 +281,28 @@ where
 
     // Track the currently focused window to monitor its title changes
     let mut current_focused_window: Option<u32> = None;
+
+    // ── Get initial focused window ─────────────────────────────────────────────
+    // Fire an immediate event with the currently focused window (like Windows/macOS)
+    if let Ok(Some(window)) = get_active_window(&conn, root, atoms.net_active_window) {
+        match get_focused_window_info(&conn, window, &atoms, &config.icon) {
+            Ok(focused_window) => {
+                if let Err(e) = on_focus(focused_window) {
+                    info!("Initial focus event handler failed: {}", e);
+                }
+                // Set up monitoring for this window
+                current_focused_window = Some(window);
+                let _ = conn.change_window_attributes(
+                    window,
+                    &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+                );
+                let _ = flush_connection(&conn);
+            }
+            Err(e) => {
+                info!("Failed to get initial window info: {}", e);
+            }
+        }
+    }
 
     // ── Event loop ─────────────────────────────────────────────────────────────
     loop {

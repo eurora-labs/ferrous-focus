@@ -84,7 +84,7 @@ fn get_frontmost_window_pid() -> FerrousFocusResult<i32> {
 
         let window_list: CFArray<CFDictionary> = CFArray::wrap_under_create_rule(window_list_ref);
 
-        if window_list.len() == 0 {
+        if window_list.is_empty() {
             return Err(crate::error::FerrousFocusError::Platform(
                 "No windows found".to_string(),
             ));
@@ -102,12 +102,12 @@ fn get_frontmost_window_pid() -> FerrousFocusResult<i32> {
             // Check window layer
             if let Some(layer_ptr) = window_info.find(layer_key.as_CFTypeRef() as *const _) {
                 let layer_cftype = CFType::wrap_under_get_rule(layer_ptr.cast());
-                if let Some(layer_number) = layer_cftype.downcast::<CFNumber>() {
-                    if let Some(layer) = layer_number.to_i32() {
-                        // Skip non-zero layers (these are overlays, menus, etc.)
-                        if layer != 0 {
-                            continue;
-                        }
+                if let Some(layer_number) = layer_cftype.downcast::<CFNumber>()
+                    && let Some(layer) = layer_number.to_i32()
+                {
+                    // Skip non-zero layers (these are overlays, menus, etc.)
+                    if layer != 0 {
+                        continue;
                     }
                 }
             }

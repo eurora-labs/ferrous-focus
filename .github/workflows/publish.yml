@@ -11,6 +11,10 @@ on:
         branches:
             - main
 
+permissions:
+    contents: write
+    pull-requests: write
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
@@ -21,10 +25,10 @@ jobs:
         runs-on: ubuntu-latest
         if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
 
             - name: Install rust toolchain
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@6d9817901c499d6b02debbb57edb38d33daa680b # stable
               with:
                   toolchain: stable
                   components: rustfmt, clippy
@@ -35,7 +39,7 @@ jobs:
               run: cargo publish --all-features
 
             - name: Release drafter
-              uses: release-drafter/release-drafter@v6
+              uses: release-drafter/release-drafter@b1476f6e6eb133afa41ed8589daba6dc69b4d3f5 # v6
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:

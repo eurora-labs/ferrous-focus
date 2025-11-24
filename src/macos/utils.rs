@@ -1,4 +1,9 @@
 use crate::{FocusedWindow, config::IconConfig, error::FerrousFocusResult};
+use core_foundation::array::{CFArray, CFArrayRef};
+use core_foundation::base::{CFType, TCFType};
+use core_foundation::dictionary::CFDictionary;
+use core_foundation::number::CFNumber;
+use core_foundation::string::CFString;
 use objc2::ClassType;
 use objc2::msg_send;
 use objc2::rc::{Retained, autoreleasepool};
@@ -9,13 +14,6 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString, ns_string};
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-struct ProcessSerialNumber {
-    high: u32,
-    low: u32,
-}
-
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn AXUIElementCreateApplication(pid: i32) -> *mut AnyObject;
@@ -25,35 +23,24 @@ unsafe extern "C" {
         value: *mut *mut AnyObject,
     ) -> i32;
     fn CFRelease(cf: *const AnyObject);
-    #[allow(deprecated)]
-    fn GetFrontProcess(psn: *mut ProcessSerialNumber) -> i32;
-    #[allow(deprecated)]
-    fn GetProcessPID(psn: *const ProcessSerialNumber, pid: *mut i32) -> i32;
 }
 
-const NO_ERR: i32 = 0;
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFArrayRef;
+}
+
 const K_AX_ERROR_SUCCESS: i32 = 0;
 const K_AX_ERROR_APIDISABLED: i32 = -25211;
+const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1;
+const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
+const K_CG_NULL_WINDOW_ID: u32 = 0;
 
 pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult<FocusedWindow> {
     autoreleasepool(|_pool| {
-        let mut psn = ProcessSerialNumber { high: 0, low: 0 };
-        let err = unsafe { GetFrontProcess(&mut psn) };
-
-        if err != NO_ERR {
-            return Err(crate::error::FerrousFocusError::Platform(
-                "Failed to get front process".to_string(),
-            ));
-        }
-
-        let mut pid: i32 = 0;
-        let err = unsafe { GetProcessPID(&psn, &mut pid) };
-
-        if err != NO_ERR {
-            return Err(crate::error::FerrousFocusError::Platform(
-                "Failed to get PID from process".to_string(),
-            ));
-        }
+        // Use Core Graphics API to get the frontmost window's owner PID
+        // This is the modern, reliable way that works in command-line tools
+        let pid = get_frontmost_window_pid()?;
 
         let running_app =
             unsafe { NSRunningApplication::runningApplicationWithProcessIdentifier(pid) };
@@ -80,6 +67,79 @@ pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult
             icon,
         })
     })
+}
+
+fn get_frontmost_window_pid() -> FerrousFocusResult<i32> {
+    unsafe {
+        // Get list of all on-screen windows, ordered by front-to-back
+        let options =
+            K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY | K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS;
+        let window_list_ref = CGWindowListCopyWindowInfo(options, K_CG_NULL_WINDOW_ID);
+
+        if window_list_ref.is_null() {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "Failed to get window list".to_string(),
+            ));
+        }
+
+        let window_list: CFArray<CFDictionary> = CFArray::wrap_under_create_rule(window_list_ref);
+
+        if window_list.len() == 0 {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "No windows found".to_string(),
+            ));
+        }
+
+        let layer_key = CFString::from_static_string("kCGWindowLayer");
+        let pid_key = CFString::from_static_string("kCGWindowOwnerPID");
+
+        // Find the first window at layer 0 (normal application windows)
+        for i in 0..window_list.len() {
+            let window_info = window_list.get(i).ok_or_else(|| {
+                crate::error::FerrousFocusError::Platform(format!("Failed to get window {}", i))
+            })?;
+
+            // Check window layer
+            if let Some(layer_ptr) = window_info.find(layer_key.as_CFTypeRef() as *const _) {
+                let layer_cftype = CFType::wrap_under_get_rule(layer_ptr.cast());
+                if let Some(layer_number) = layer_cftype.downcast::<CFNumber>() {
+                    if let Some(layer) = layer_number.to_i32() {
+                        // Skip non-zero layers (these are overlays, menus, etc.)
+                        if layer != 0 {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Get the PID for this window
+            let pid_value_ptr = window_info
+                .find(pid_key.as_CFTypeRef() as *const _)
+                .ok_or_else(|| {
+                    crate::error::FerrousFocusError::Platform(
+                        "Failed to get window owner PID".to_string(),
+                    )
+                })?;
+
+            let pid_cftype = CFType::wrap_under_get_rule(pid_value_ptr.cast());
+            let pid_number: CFNumber = pid_cftype.downcast().ok_or_else(|| {
+                crate::error::FerrousFocusError::Platform(
+                    "Failed to downcast PID to CFNumber".to_string(),
+                )
+            })?;
+            let pid: i32 = pid_number.to_i32().ok_or_else(|| {
+                crate::error::FerrousFocusError::Platform(
+                    "Failed to convert PID to i32".to_string(),
+                )
+            })?;
+
+            return Ok(pid);
+        }
+
+        Err(crate::error::FerrousFocusError::Platform(
+            "No normal application window found".to_string(),
+        ))
+    }
 }
 
 fn get_window_title_via_accessibility(pid: i32) -> FerrousFocusResult<Option<String>> {

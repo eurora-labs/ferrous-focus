@@ -2,6 +2,10 @@ name: CI
 on:
     push: { branches: [main] }
     pull_request:
+
+permissions:
+    contents: read
+
 jobs:
     test:
         strategy:
@@ -29,4 +33,3 @@ jobs:
               run: cargo test --all --all-features -- --test-threads=1
               env:
                   INTEGRATION_TEST: 1
-

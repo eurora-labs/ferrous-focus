@@ -78,13 +78,13 @@ impl ImplFocusTracker {
 
         loop {
             // Check stop signal before processing
-            if should_stop(stop_signal) {
+            if stop_signal.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
                 debug!("Stop signal received, exiting focus tracking loop");
                 break;
             }
 
             // Get the current focused window information
-            match get_focused_window_info(&config.icon) {
+            match utils::get_frontmost_window_info(&config.icon) {
                 Ok(window) => {
                     let current_state = (window.process_name.clone(), window.window_title.clone());
 
@@ -119,13 +119,13 @@ impl ImplFocusTracker {
 
         loop {
             // Check stop signal before processing
-            if should_stop(stop_signal) {
+            if stop_signal.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
                 debug!("Stop signal received, exiting focus tracking loop");
                 break;
             }
 
             // Get the current focused window information
-            match get_focused_window_info(&config.icon) {
+            match utils::get_frontmost_window_info(&config.icon) {
                 Ok(window) => {
                     let current_state = (window.process_name.clone(), window.window_title.clone());
 
@@ -146,20 +146,4 @@ impl ImplFocusTracker {
 
         Ok(())
     }
-}
-
-/* ------------------------------------------------------------ */
-/* Helper functions                                              */
-/* ------------------------------------------------------------ */
-
-/// Check if the stop signal is set.
-fn should_stop(stop_signal: Option<&AtomicBool>) -> bool {
-    stop_signal.is_some_and(|stop| stop.load(Ordering::Relaxed))
-}
-
-/// Get information about the currently focused window.
-fn get_focused_window_info(
-    icon_config: &crate::config::IconConfig,
-) -> FerrousFocusResult<FocusedWindow> {
-    utils::get_frontmost_window_info(icon_config)
 }

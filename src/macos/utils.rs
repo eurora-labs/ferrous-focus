@@ -1,138 +1,246 @@
 use crate::{FocusedWindow, config::IconConfig, error::FerrousFocusResult};
-use base64::prelude::*;
-use std::process::Command;
+use objc2::ClassType;
+use objc2::msg_send;
+use objc2::rc::{Retained, autoreleasepool};
+use objc2::runtime::AnyObject;
+use objc2_app_kit::{
+    NSBitmapImageFileType, NSBitmapImageRep, NSCompositingOperation, NSImage, NSRunningApplication,
+    NSWorkspace,
+};
+use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString, ns_string};
 
-/// Get all information about the frontmost window in a single atomic operation.
-/// Returns: (app_name, process_id, window_title)
-pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult<FocusedWindow> {
-    #[allow(unused_unsafe)]
-    unsafe {
-        // Get PID and window title from AppleScript
-        let window_info = get_window_info_via_applescript(icon_config)?;
-
-        // Get the localized app name from NSWorkspace using the PID
-        // This gives us the user-friendly name (e.g., "Windsurf" instead of "Electron")
-        // let display_name = get_localized_app_name(process_id).unwrap_or(process_name);
-
-        Ok(window_info)
-        // Ok((display_name, process_id, window_title))
-    }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct ProcessSerialNumber {
+    high: u32,
+    low: u32,
 }
 
-/// Get all window information via AppleScript.
-/// Returns: (app_name, process_id, window_title)
-unsafe fn get_window_info_via_applescript(
-    icon_config: &IconConfig,
-) -> FerrousFocusResult<FocusedWindow> {
-    let icon_size = icon_config.get_size_or_default();
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXUIElementCreateApplication(pid: i32) -> *mut AnyObject;
+    fn AXUIElementCopyAttributeValue(
+        element: *const AnyObject,
+        attribute: *const AnyObject,
+        value: *mut *mut AnyObject,
+    ) -> i32;
+    fn CFRelease(cf: *const AnyObject);
+    fn GetFrontProcess(psn: *mut ProcessSerialNumber) -> i32;
+    fn GetProcessPID(psn: *const ProcessSerialNumber, pid: *mut i32) -> i32;
+}
 
-    let applescript = format!(
-        r#"
-    use framework "Foundation"
-    use framework "AppKit"
-    use scripting additions
+const K_AX_ERROR_SUCCESS: i32 = 0;
+const K_AX_ERROR_APIDISABLED: i32 = -25211;
 
-    tell application "System Events"
- set frontApp to first application process whose frontmost is true
- set frontAppName to name of frontApp
- set frontAppPID to unix id of frontApp
- set windowTitle to ""
- try
-  tell frontApp to set windowTitle to name of first window
- end try
-    end tell
+pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult<FocusedWindow> {
+    autoreleasepool(|_pool| unsafe {
+        let mut psn = ProcessSerialNumber { high: 0, low: 0 };
+        let err = GetFrontProcess(&mut psn);
 
-    set nsapp to current application's NSRunningApplication's runningApplicationWithProcessIdentifier:frontAppPID
-    set appURL to nsapp's bundleURL()
-    set appPath to (appURL's |path|()) as text
+        if err != 0 {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "Failed to get front process".to_string(),
+            ));
+        }
 
-    set ws to current application's NSWorkspace's sharedWorkspace()
-    set img to ws's iconForFile:appPath
+        let mut pid: i32 = 0;
+        let err = GetProcessPID(&psn, &mut pid);
 
-    -- Create bitmap representation directly with the target size
-    set targetRect to current application's NSMakeRect(0, 0, {}, {})
-    set rep to (current application's NSBitmapImageRep's alloc()'s initWithBitmapDataPlanes:(missing value) pixelsWide:{} pixelsHigh:{} bitsPerSample:8 samplesPerPixel:4 hasAlpha:true isPlanar:false colorSpaceName:(current application's NSCalibratedRGBColorSpace) bytesPerRow:0 bitsPerPixel:0)
+        if err != 0 {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "Failed to get PID from process".to_string(),
+            ));
+        }
 
-    -- Draw into the bitmap representation
-    current application's NSGraphicsContext's saveGraphicsState()
-    (current application's NSGraphicsContext's setCurrentContext:(current application's NSGraphicsContext's graphicsContextWithBitmapImageRep:rep))
-    img's drawInRect:targetRect fromRect:(current application's NSZeroRect) operation:(current application's NSCompositingOperationCopy) fraction:1.0
-    current application's NSGraphicsContext's restoreGraphicsState()
+        let running_app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
 
-    set pngData to rep's representationUsingType:(current application's NSBitmapImageFileTypePNG) |properties|:(current application's NSDictionary's dictionary())
-    set b64 to (pngData's base64EncodedStringWithOptions:0) as text
+        let process_name = if let Some(ref app) = running_app {
+            let name = app.localizedName();
+            name.map(|n| n.to_string())
+        } else {
+            None
+        };
 
-    set NUL to (ASCII character 0)
-    return frontAppName & NUL & frontAppPID & NUL & windowTitle & NUL & b64
-    "#,
-        icon_size, icon_size, icon_size, icon_size
-    );
+        let window_title = get_window_title_via_accessibility(pid)?;
 
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(&applescript)
-        .output()
-        .map_err(|e| {
-            crate::error::FerrousFocusError::Platform(format!(
-                "Failed to execute AppleScript: {}",
-                e
-            ))
-        })?;
+        let icon = if let Some(app) = running_app {
+            get_app_icon(&app, icon_config)?
+        } else {
+            None
+        };
 
-    if !output.status.success() {
-        // Check if the error is related to accessibility permissions
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("not allowed assistive access")
-            || stderr.contains("accessibility")
-            || stderr.contains("permission")
-        {
+        Ok(FocusedWindow {
+            process_id: Some(pid as u32),
+            window_title,
+            process_name,
+            icon,
+        })
+    })
+}
+
+fn get_window_title_via_accessibility(pid: i32) -> FerrousFocusResult<Option<String>> {
+    unsafe {
+        let app_element = AXUIElementCreateApplication(pid);
+        if app_element.is_null() {
+            return Ok(None);
+        }
+
+        let focused_window_key = ns_string!("AXFocusedWindow");
+        let mut focused_window: *mut AnyObject = std::ptr::null_mut();
+        let result = AXUIElementCopyAttributeValue(
+            app_element,
+            focused_window_key as *const NSString as *const AnyObject,
+            &mut focused_window,
+        );
+
+        CFRelease(app_element);
+
+        if result == K_AX_ERROR_APIDISABLED {
             return Err(crate::error::FerrousFocusError::PermissionDenied);
         }
 
-        return Err(crate::error::FerrousFocusError::Platform(
-            "Failed to get window info via AppleScript".to_string(),
-        ));
-    }
-    let mut bytes = output.stdout;
-    while matches!(bytes.last(), Some(b'\n' | b'\r')) {
-        bytes.pop();
-    }
+        if result != K_AX_ERROR_SUCCESS || focused_window.is_null() {
+            return Ok(None);
+        }
 
-    parse_applescript_output(&bytes)
+        let title_key = ns_string!("AXTitle");
+        let mut title: *mut AnyObject = std::ptr::null_mut();
+        let result = AXUIElementCopyAttributeValue(
+            focused_window,
+            title_key as *const NSString as *const AnyObject,
+            &mut title,
+        );
+
+        CFRelease(focused_window);
+
+        if result != K_AX_ERROR_SUCCESS || title.is_null() {
+            return Ok(None);
+        }
+
+        let title_str = if !title.is_null() {
+            let retained = Retained::from_raw(title as *mut NSString).unwrap();
+            let result = Some(retained.to_string());
+            std::mem::forget(retained);
+            result
+        } else {
+            None
+        };
+
+        if !title.is_null() {
+            CFRelease(title);
+        }
+
+        Ok(title_str)
+    }
 }
 
-/// Parse the AppleScript output into structured data.
-fn parse_applescript_output(bytes: &[u8]) -> FerrousFocusResult<FocusedWindow> {
-    let mut parts = bytes.split(|&b| b == 0);
-    let app_name = String::from_utf8(parts.next().unwrap_or_default().to_vec()).map_err(|_| {
-        crate::error::FerrousFocusError::Platform("Failed to parse app name".to_string())
-    })?;
-    let pid: u32 = String::from_utf8(parts.next().unwrap_or_default().to_vec())
-        .map_err(|_| {
-            crate::error::FerrousFocusError::Platform("Failed to parse process ID".to_string())
-        })?
-        .parse()
-        .map_err(|_| {
-            crate::error::FerrousFocusError::Platform("Failed to parse process ID".to_string())
-        })?;
-    let window_title =
-        String::from_utf8(parts.next().unwrap_or_default().to_vec()).map_err(|_| {
-            crate::error::FerrousFocusError::Platform("Failed to parse window title".to_string())
-        })?;
+fn get_app_icon(
+    app: &NSRunningApplication,
+    icon_config: &IconConfig,
+) -> FerrousFocusResult<Option<image::RgbaImage>> {
+    unsafe {
+        let bundle_url = app.bundleURL();
+        if bundle_url.is_none() {
+            return Ok(None);
+        }
+        let bundle_url = bundle_url.unwrap();
 
-    let icon_data = parts.next().unwrap_or_default().to_vec();
-    let b64 = BASE64_STANDARD.decode(icon_data).map_err(|_| {
-        crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string())
-    })?;
-    let image = image::load_from_memory(&b64)
-        .map_err(|_| crate::error::FerrousFocusError::Platform("Failed to parse icon".to_string()))?
-        .to_rgba8();
+        let workspace = NSWorkspace::sharedWorkspace();
+        let icon = workspace.iconForFile(&bundle_url.path().unwrap());
 
-    Ok(FocusedWindow {
-        process_id: Some(pid),
-        window_title: Some(window_title),
-        process_name: Some(app_name),
-        // icon: None,
-        icon: Some(image),
-    })
+        let rgba_image = nsimage_to_rgba(&icon, icon_config)?;
+        Ok(Some(rgba_image))
+    }
+}
+
+fn nsimage_to_rgba(
+    image: &NSImage,
+    icon_config: &IconConfig,
+) -> FerrousFocusResult<image::RgbaImage> {
+    unsafe {
+        let icon_size = icon_config.get_size_or_default() as f64;
+
+        let size = NSSize {
+            width: icon_size,
+            height: icon_size,
+        };
+
+        image.setSize(size);
+
+        let rect = NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size,
+        };
+
+        let bitmap_rep = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            msg_send![NSBitmapImageRep::class(), alloc],
+            std::ptr::null_mut(),
+            icon_size as isize,
+            icon_size as isize,
+            8,
+            4,
+            true,
+            false,
+            ns_string!("NSCalibratedRGBColorSpace"),
+            0,
+            0,
+        );
+
+        if bitmap_rep.is_none() {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "Failed to create bitmap representation".to_string(),
+            ));
+        }
+        let bitmap_rep = bitmap_rep.unwrap();
+
+        let ns_graphics_context_class = objc2::class!(NSGraphicsContext);
+        let graphics_context: *mut AnyObject = msg_send![
+            ns_graphics_context_class,
+            graphicsContextWithBitmapImageRep: &*bitmap_rep
+        ];
+
+        let _: () = msg_send![ns_graphics_context_class, saveGraphicsState];
+        let _: () = msg_send![ns_graphics_context_class, setCurrentContext: graphics_context];
+
+        let from_rect = NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: NSSize {
+                width: 0.0,
+                height: 0.0,
+            },
+        };
+        image.drawInRect_fromRect_operation_fraction(
+            rect,
+            from_rect,
+            NSCompositingOperation::Copy,
+            1.0,
+        );
+
+        let _: () = msg_send![ns_graphics_context_class, restoreGraphicsState];
+
+        let empty_dict = NSDictionary::new();
+        let png_data =
+            bitmap_rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &empty_dict);
+
+        if png_data.is_none() {
+            return Err(crate::error::FerrousFocusError::Platform(
+                "Failed to get PNG data from bitmap".to_string(),
+            ));
+        }
+        let png_data = png_data.unwrap();
+
+        let data_ptr: *const std::ffi::c_void = msg_send![&*png_data, bytes];
+        let bytes = std::slice::from_raw_parts(data_ptr as *const u8, png_data.len());
+
+        let rgba_image = image::load_from_memory(bytes)
+            .map_err(|e| {
+                crate::error::FerrousFocusError::Platform(format!(
+                    "Failed to load image from PNG data: {}",
+                    e
+                ))
+            })?
+            .to_rgba8();
+
+        Ok(rgba_image)
+    }
 }

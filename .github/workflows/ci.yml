@@ -2,6 +2,10 @@ name: CI
 on:
     push: { branches: [main] }
     pull_request:
+
+permissions:
+    contents: read
+
 jobs:
     test:
         strategy:
@@ -9,8 +13,8 @@ jobs:
                 os: [ubuntu-latest, windows-latest, macos-latest]
         runs-on: ${{ matrix.os }}
         steps:
-            - uses: actions/checkout@v5
-            - uses: dtolnay/rust-toolchain@stable
+            - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+            - uses: dtolnay/rust-toolchain@6d9817901c499d6b02debbb57edb38d33daa680b # stable
               with:
                   toolchain: stable
                   components: clippy, rustfmt
@@ -29,4 +33,3 @@ jobs:
               run: cargo test --all --all-features -- --test-threads=1
               env:
                   INTEGRATION_TEST: 1
-

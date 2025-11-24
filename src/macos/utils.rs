@@ -42,11 +42,10 @@ pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult
         // This is the modern, reliable way that works in command-line tools
         let pid = get_frontmost_window_pid()?;
 
-        let running_app =
-            unsafe { NSRunningApplication::runningApplicationWithProcessIdentifier(pid) };
+        let running_app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
 
         let process_name = if let Some(ref app) = running_app {
-            let name = unsafe { app.localizedName() };
+            let name = app.localizedName();
             name.map(|n| n.to_string())
         } else {
             None
@@ -196,14 +195,14 @@ fn get_app_icon(
     app: &NSRunningApplication,
     icon_config: &IconConfig,
 ) -> FerrousFocusResult<Option<image::RgbaImage>> {
-    let bundle_url = unsafe { app.bundleURL() };
+    let bundle_url = app.bundleURL();
     if bundle_url.is_none() {
         return Ok(None);
     }
     let bundle_url = bundle_url.unwrap();
 
-    let workspace = unsafe { NSWorkspace::sharedWorkspace() };
-    let icon = unsafe { workspace.iconForFile(&bundle_url.path().unwrap()) };
+    let workspace = NSWorkspace::sharedWorkspace();
+    let icon = workspace.iconForFile(&bundle_url.path().unwrap());
 
     let rgba_image = nsimage_to_rgba(&icon, icon_config)?;
     Ok(Some(rgba_image))
@@ -220,7 +219,7 @@ fn nsimage_to_rgba(
         height: icon_size,
     };
 
-    unsafe { image.setSize(size) };
+    image.setSize(size);
 
     let rect = NSRect {
         origin: NSPoint { x: 0.0, y: 0.0 },
@@ -270,14 +269,12 @@ fn nsimage_to_rgba(
             height: 0.0,
         },
     };
-    unsafe {
-        image.drawInRect_fromRect_operation_fraction(
-            rect,
-            from_rect,
-            NSCompositingOperation::Copy,
-            1.0,
-        );
-    }
+    image.drawInRect_fromRect_operation_fraction(
+        rect,
+        from_rect,
+        NSCompositingOperation::Copy,
+        1.0,
+    );
 
     unsafe {
         let _: () = msg_send![ns_graphics_context_class, restoreGraphicsState];

@@ -6,13 +6,14 @@ use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use objc2::ClassType;
 use objc2::msg_send;
-use objc2::rc::{Retained, autoreleasepool};
+use objc2::rc::autoreleasepool;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSCompositingOperation, NSImage, NSRunningApplication,
     NSWorkspace,
 };
 use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString, ns_string};
+use std::ffi::c_void;
 
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
@@ -22,8 +23,21 @@ unsafe extern "C" {
         attribute: *const AnyObject,
         value: *mut *mut AnyObject,
     ) -> i32;
-    fn CFRelease(cf: *const AnyObject);
 }
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFRelease(cf: *const c_void);
+    fn CFStringGetLength(theString: *const c_void) -> isize;
+    fn CFStringGetCString(
+        theString: *const c_void,
+        buffer: *mut i8,
+        bufferSize: isize,
+        encoding: u32,
+    ) -> bool;
+}
+
+const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
 
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
@@ -157,7 +171,8 @@ fn get_window_title_via_accessibility(pid: i32) -> FerrousFocusResult<Option<Str
         )
     };
 
-    unsafe { CFRelease(app_element) };
+    // Release app_element - it follows the Create Rule
+    unsafe { CFRelease(app_element as *const c_void) };
 
     if result == K_AX_ERROR_APIDISABLED {
         return Err(crate::error::FerrousFocusError::PermissionDenied);
@@ -177,32 +192,75 @@ fn get_window_title_via_accessibility(pid: i32) -> FerrousFocusResult<Option<Str
         )
     };
 
-    unsafe { CFRelease(focused_window) };
+    // Release focused_window - it follows the Create Rule
+    unsafe { CFRelease(focused_window as *const c_void) };
 
     if result != K_AX_ERROR_SUCCESS || title.is_null() {
         return Ok(None);
     }
 
-    let title_str = unsafe {
-        let retained = Retained::from_raw(title as *mut NSString).unwrap();
-        retained.to_string()
+    // Extract string from CFString and then release it
+    // The title follows the Create Rule from AXUIElementCopyAttributeValue
+    let title_str = unsafe { cfstring_to_string(title as *const c_void) };
+
+    // Release title - it follows the Create Rule
+    unsafe { CFRelease(title as *const c_void) };
+
+    Ok(title_str)
+}
+
+/// Convert a CFString to a Rust String
+///
+/// # Safety
+/// The caller must ensure the pointer is a valid CFString
+unsafe fn cfstring_to_string(cf_string: *const c_void) -> Option<String> {
+    if cf_string.is_null() {
+        return None;
+    }
+
+    let length = unsafe { CFStringGetLength(cf_string) };
+    if length <= 0 {
+        return Some(String::new());
+    }
+
+    // UTF-8 can use up to 4 bytes per character, plus null terminator
+    let buffer_size = (length * 4 + 1) as usize;
+    let mut buffer: Vec<i8> = vec![0; buffer_size];
+
+    let success = unsafe {
+        CFStringGetCString(
+            cf_string,
+            buffer.as_mut_ptr(),
+            buffer_size as isize,
+            K_CF_STRING_ENCODING_UTF8,
+        )
     };
 
-    Ok(Some(title_str))
+    if success {
+        // Find the null terminator and convert to String
+        let c_str = unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) };
+        c_str.to_str().ok().map(|s| s.to_string())
+    } else {
+        None
+    }
 }
 
 fn get_app_icon(
     app: &NSRunningApplication,
     icon_config: &IconConfig,
 ) -> FerrousFocusResult<Option<image::RgbaImage>> {
-    let bundle_url = app.bundleURL();
-    if bundle_url.is_none() {
-        return Ok(None);
-    }
-    let bundle_url = bundle_url.unwrap();
+    let bundle_url = match app.bundleURL() {
+        Some(url) => url,
+        None => return Ok(None),
+    };
+
+    let path = match bundle_url.path() {
+        Some(p) => p,
+        None => return Ok(None),
+    };
 
     let workspace = NSWorkspace::sharedWorkspace();
-    let icon = workspace.iconForFile(&bundle_url.path().unwrap());
+    let icon = workspace.iconForFile(&path);
 
     let rgba_image = nsimage_to_rgba(&icon, icon_config)?;
     Ok(Some(rgba_image))

@@ -103,7 +103,8 @@ where
             match get_window_info(&conn, window, &atoms) {
                 Ok(mut focused_window) => {
                     // Initial window - fetch icon
-                    let icon = get_icon_data(&conn, window, atoms.net_wm_icon, &config_clone.icon).ok();
+                    let icon =
+                        get_icon_data(&conn, window, atoms.net_wm_icon, &config_clone.icon).ok();
                     cached_icon = icon.clone();
                     focused_window.icon = icon;
 
@@ -191,7 +192,13 @@ where
                         Ok(mut focused_window) => {
                             // Only fetch icon when the focused app changes, not on title changes
                             if is_focus_change {
-                                let icon = get_icon_data(&conn, window, atoms.net_wm_icon, &config_clone.icon).ok();
+                                let icon = get_icon_data(
+                                    &conn,
+                                    window,
+                                    atoms.net_wm_icon,
+                                    &config_clone.icon,
+                                )
+                                .ok();
                                 cached_icon = icon.clone();
                                 focused_window.icon = icon;
                             } else {
@@ -375,7 +382,8 @@ where
                     Ok(mut focused_window) => {
                         // Only fetch icon when the focused app changes, not on title changes
                         if is_focus_change {
-                            let icon = get_icon_data(&conn, window, atoms.net_wm_icon, &config.icon).ok();
+                            let icon =
+                                get_icon_data(&conn, window, atoms.net_wm_icon, &config.icon).ok();
                             cached_icon = icon.clone();
                             focused_window.icon = icon;
                         } else {

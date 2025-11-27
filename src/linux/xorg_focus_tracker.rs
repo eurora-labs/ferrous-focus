@@ -94,12 +94,20 @@ where
 
         // Track the currently focused window to monitor its title changes
         let mut current_focused_window: Option<u32> = None;
+        // Cache the icon for the currently focused window (only fetch on app change)
+        let mut cached_icon: Option<image::RgbaImage> = None;
 
         // ── Get initial focused window ─────────────────────────────────────────────
         // Fire an immediate event with the currently focused window (like Windows/macOS)
         if let Ok(Some(window)) = get_active_window(&conn, root, atoms.net_active_window) {
-            match get_focused_window_info(&conn, window, &atoms, &config_clone.icon) {
-                Ok(focused_window) => {
+            match get_window_info(&conn, window, &atoms) {
+                Ok(mut focused_window) => {
+                    // Initial window - fetch icon
+                    let icon =
+                        get_icon_data(&conn, window, atoms.net_wm_icon, &config_clone.icon).ok();
+                    cached_icon = icon.clone();
+                    focused_window.icon = icon;
+
                     // Send initial window info to async context via channel
                     if tx.send(focused_window).is_err() {
                         // Channel closed, async task has been dropped
@@ -147,6 +155,7 @@ where
             if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
                 let mut should_emit_focus_event = false;
                 let mut new_window: Option<u32> = None;
+                let mut is_focus_change = false;
 
                 // Check if this is an active window change
                 if atom == atoms.net_active_window && window == root {
@@ -155,6 +164,7 @@ where
                         Ok(win) => {
                             new_window = win;
                             should_emit_focus_event = true;
+                            is_focus_change = true;
 
                             // Update monitoring for the new focused window
                             update_window_monitoring(
@@ -171,14 +181,30 @@ where
                 }
                 // Check if this is a title change on the currently focused window
                 else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
-                    // Title changed on the focused window
+                    // Title changed on the focused window - don't fetch icon again
                     new_window = current_focused_window;
                     should_emit_focus_event = true;
+                    is_focus_change = false;
                 }
 
                 if should_emit_focus_event && let Some(window) = new_window {
-                    match get_focused_window_info(&conn, window, &atoms, &config_clone.icon) {
-                        Ok(focused_window) => {
+                    match get_window_info(&conn, window, &atoms) {
+                        Ok(mut focused_window) => {
+                            // Only fetch icon when the focused app changes, not on title changes
+                            if is_focus_change {
+                                let icon = get_icon_data(
+                                    &conn,
+                                    window,
+                                    atoms.net_wm_icon,
+                                    &config_clone.icon,
+                                )
+                                .ok();
+                                cached_icon = icon.clone();
+                                focused_window.icon = icon;
+                            } else {
+                                focused_window.icon = cached_icon.clone();
+                            }
+
                             // Send to async context via channel
                             if tx.send(focused_window).is_err() {
                                 // Channel closed, async task has been dropped
@@ -281,12 +307,19 @@ where
 
     // Track the currently focused window to monitor its title changes
     let mut current_focused_window: Option<u32> = None;
+    // Cache the icon for the currently focused window (only fetch on app change)
+    let mut cached_icon: Option<image::RgbaImage> = None;
 
     // ── Get initial focused window ─────────────────────────────────────────────
     // Fire an immediate event with the currently focused window (like Windows/macOS)
     if let Ok(Some(window)) = get_active_window(&conn, root, atoms.net_active_window) {
-        match get_focused_window_info(&conn, window, &atoms, &config.icon) {
-            Ok(focused_window) => {
+        match get_window_info(&conn, window, &atoms) {
+            Ok(mut focused_window) => {
+                // Initial window - fetch icon
+                let icon = get_icon_data(&conn, window, atoms.net_wm_icon, &config.icon).ok();
+                cached_icon = icon.clone();
+                focused_window.icon = icon;
+
                 if let Err(e) = on_focus(focused_window) {
                     info!("Initial focus event handler failed: {}", e);
                 }
@@ -316,6 +349,7 @@ where
         if let Event::PropertyNotify(PropertyNotifyEvent { atom, window, .. }) = event {
             let mut should_emit_focus_event = false;
             let mut new_window: Option<u32> = None;
+            let mut is_focus_change = false;
 
             // Check if this is an active window change
             if atom == atoms.net_active_window && window == root {
@@ -324,6 +358,7 @@ where
                     Ok(win) => {
                         new_window = win;
                         should_emit_focus_event = true;
+                        is_focus_change = true;
 
                         // Update monitoring for the new focused window
                         update_window_monitoring(&conn, &mut current_focused_window, new_window);
@@ -336,14 +371,25 @@ where
             }
             // Check if this is a title change on the currently focused window
             else if atom == atoms.net_wm_name && Some(window) == current_focused_window {
-                // Title changed on the focused window
+                // Title changed on the focused window - don't fetch icon again
                 new_window = current_focused_window;
                 should_emit_focus_event = true;
+                is_focus_change = false;
             }
 
             if should_emit_focus_event && let Some(window) = new_window {
-                match get_focused_window_info(&conn, window, &atoms, &config.icon) {
-                    Ok(focused_window) => {
+                match get_window_info(&conn, window, &atoms) {
+                    Ok(mut focused_window) => {
+                        // Only fetch icon when the focused app changes, not on title changes
+                        if is_focus_change {
+                            let icon =
+                                get_icon_data(&conn, window, atoms.net_wm_icon, &config.icon).ok();
+                            cached_icon = icon.clone();
+                            focused_window.icon = icon;
+                        } else {
+                            focused_window.icon = cached_icon.clone();
+                        }
+
                         if let Err(e) = on_focus(focused_window) {
                             info!("Focus event handler failed: {}", e);
                             // Continue processing instead of propagating the error
@@ -494,12 +540,12 @@ fn flush_connection<C: Connection>(conn: &C) -> FerrousFocusResult<()> {
         .map_err(|e| FerrousFocusError::Platform(format!("Failed to flush connection: {e}")))
 }
 
-/// Get all information about a focused window.
-fn get_focused_window_info<C: Connection>(
+/// Get window info (process name, title) without fetching the icon.
+/// The icon should be fetched separately using `get_icon_data` only when the focused app changes.
+fn get_window_info<C: Connection>(
     conn: &C,
     window: u32,
     atoms: &X11Atoms,
-    icon_config: &crate::config::IconConfig,
 ) -> FerrousFocusResult<FocusedWindow> {
     // Handle window property queries with graceful error handling
     let title = get_window_name(conn, window, atoms).unwrap_or_else(|e| {
@@ -514,13 +560,11 @@ fn get_focused_window_info<C: Connection>(
             (None, Some("<unknown>".to_string()))
         });
 
-    let icon = get_icon_data(conn, window, atoms.net_wm_icon, icon_config).ok();
-
     Ok(FocusedWindow {
         process_id,
         process_name,
         window_title: Some(title),
-        icon,
+        icon: None,
     })
 }
 

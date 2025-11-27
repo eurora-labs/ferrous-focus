@@ -93,15 +93,28 @@ impl ImplFocusTracker {
         // Store HWND as isize to ensure Send trait is satisfied for async contexts
         let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
+        // Cache the icon for the currently focused window (only fetch on app change)
+        let mut cached_icon: Option<image::RgbaImage> = None;
 
         // Get initial focused window - use helper function to avoid non-Send types
-        if let Some(window_info) = get_current_focused_window_info(&config.icon) {
-            if let Err(e) = on_focus(window_info.focused_window).await {
+        if let Some(window_info) = get_window_info_without_icon() {
+            // Initial window - fetch icon
+            let icon = get_window_icon_by_hwnd(window_info.hwnd_value, &config.icon);
+            cached_icon = icon.clone();
+
+            let focused_window = FocusedWindow {
+                process_id: window_info.process_id,
+                process_name: window_info.process_name,
+                window_title: window_info.window_title.clone(),
+                icon,
+            };
+
+            if let Err(e) = on_focus(focused_window).await {
                 info!("Focus event handler failed: {}", e);
             }
 
             prev_hwnd = Some(window_info.hwnd_value);
-            prev_title = Some(window_info.title);
+            prev_title = window_info.window_title;
         }
 
         // Main event loop - we'll use polling since Windows event hooks are complex to integrate
@@ -115,7 +128,7 @@ impl ImplFocusTracker {
             }
 
             // Check current foreground window - use helper function to avoid non-Send types
-            if let Some(window_info) = get_current_focused_window_info(&config.icon) {
+            if let Some(window_info) = get_window_info_without_icon() {
                 let current_hwnd_value = window_info.hwnd_value;
                 let focus_changed = match prev_hwnd {
                     Some(prev) => prev != current_hwnd_value,
@@ -124,24 +137,41 @@ impl ImplFocusTracker {
 
                 // Also check if title changed for the same window
                 let title_changed = match &prev_title {
-                    Some(prev_t) => prev_t != &window_info.title,
+                    Some(prev_t) => Some(prev_t) != window_info.window_title.as_ref(),
                     None => true,
                 };
 
                 // Trigger handler if either window focus or title has changed
                 if focus_changed || title_changed {
-                    if let Err(e) = on_focus(window_info.focused_window).await {
+                    // Only fetch icon when the focused app changes, not on title changes
+                    let icon = if focus_changed {
+                        let new_icon = get_window_icon_by_hwnd(current_hwnd_value, &config.icon);
+                        cached_icon = new_icon.clone();
+                        new_icon
+                    } else {
+                        cached_icon.clone()
+                    };
+
+                    let focused_window = FocusedWindow {
+                        process_id: window_info.process_id,
+                        process_name: window_info.process_name,
+                        window_title: window_info.window_title.clone(),
+                        icon,
+                    };
+
+                    if let Err(e) = on_focus(focused_window).await {
                         info!("Focus event handler failed: {}", e);
                     }
 
                     prev_hwnd = Some(current_hwnd_value);
-                    prev_title = Some(window_info.title);
+                    prev_title = window_info.window_title;
                 }
             } else {
                 // No foreground window
                 if prev_hwnd.is_some() {
                     prev_hwnd = None;
                     prev_title = None;
+                    cached_icon = None;
                 }
             }
 
@@ -170,12 +200,17 @@ impl ImplFocusTracker {
         // Store HWND as isize for consistency with async path
         let mut prev_hwnd: Option<isize> = None;
         let mut prev_title: Option<String> = None;
+        // Cache the icon for the currently focused window (only fetch on app change)
+        let mut cached_icon: Option<image::RgbaImage> = None;
 
         // Get initial focused window
         if let Some(hwnd) = utils::get_foreground_window()
             && let Ok((title, process)) = unsafe { utils::get_window_info(hwnd) }
         {
+            // Initial window - fetch icon
             let icon = get_window_icon(hwnd, &config.icon);
+            cached_icon = icon.clone();
+
             let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
             if let Err(e) = on_focus(FocusedWindow {
                 process_id: Some(process_id),
@@ -218,7 +253,15 @@ impl ImplFocusTracker {
 
                         // Trigger handler if either window focus or title has changed
                         if focus_changed || title_changed {
-                            let icon = get_window_icon(current_hwnd, &config.icon);
+                            // Only fetch icon when the focused app changes, not on title changes
+                            let icon = if focus_changed {
+                                let new_icon = get_window_icon(current_hwnd, &config.icon);
+                                cached_icon = new_icon.clone();
+                                new_icon
+                            } else {
+                                cached_icon.clone()
+                            };
+
                             let process_id = unsafe { utils::get_window_process_id(current_hwnd) }
                                 .unwrap_or_default();
                             if let Err(e) = on_focus(FocusedWindow {
@@ -243,6 +286,7 @@ impl ImplFocusTracker {
                 if prev_hwnd.is_some() {
                     prev_hwnd = None;
                     prev_title = None;
+                    cached_icon = None;
                 }
             }
 
@@ -258,33 +302,38 @@ impl ImplFocusTracker {
 /* Helper functions                                              */
 /* ------------------------------------------------------------ */
 
-/// Helper struct to hold window information with Send-safe types
+/// Helper struct to hold window information with Send-safe types (without icon)
 struct WindowInfo {
     hwnd_value: isize,
-    title: String,
-    focused_window: FocusedWindow,
+    process_id: Option<u32>,
+    process_name: Option<String>,
+    window_title: Option<String>,
 }
 
-/// Get current focused window info, returning only Send-safe types
+/// Get current focused window info without icon, returning only Send-safe types
 /// This helper ensures no HWND pointers leak into async contexts
-fn get_current_focused_window_info(icon_config: &crate::config::IconConfig) -> Option<WindowInfo> {
+/// The icon should be fetched separately using `get_window_icon_by_hwnd` only when the focused app changes.
+fn get_window_info_without_icon() -> Option<WindowInfo> {
     let hwnd = utils::get_foreground_window()?;
     let hwnd_value = hwnd as isize;
 
     let (title, process) = unsafe { utils::get_window_info(hwnd) }.ok()?;
-    let icon = get_window_icon(hwnd, icon_config);
     let process_id = unsafe { utils::get_window_process_id(hwnd) }.unwrap_or_default();
 
     Some(WindowInfo {
         hwnd_value,
-        title: title.clone(),
-        focused_window: FocusedWindow {
-            process_id: Some(process_id),
-            process_name: Some(process),
-            window_title: Some(title),
-            icon,
-        },
+        process_id: Some(process_id),
+        process_name: Some(process),
+        window_title: Some(title),
     })
+}
+
+/// Get the icon for a window by HWND value (isize)
+fn get_window_icon_by_hwnd(
+    hwnd_value: isize,
+    icon_config: &crate::config::IconConfig,
+) -> Option<image::RgbaImage> {
+    get_window_icon(hwnd_value as HWND, icon_config)
 }
 
 /// Resize an image to the specified dimensions using Lanczos3 filtering

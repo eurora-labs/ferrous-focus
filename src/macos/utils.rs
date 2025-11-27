@@ -50,10 +50,9 @@ const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1;
 const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 const K_CG_NULL_WINDOW_ID: u32 = 0;
 
-pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult<FocusedWindow> {
+/// Get basic window info without icon (for change detection)
+pub fn get_frontmost_window_basic_info() -> FerrousFocusResult<FocusedWindow> {
     autoreleasepool(|_pool| {
-        // Use Core Graphics API to get the frontmost window's owner PID
-        // This is the modern, reliable way that works in command-line tools
         let pid = get_frontmost_window_pid()?;
 
         let running_app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
@@ -67,18 +66,27 @@ pub fn get_frontmost_window_info(icon_config: &IconConfig) -> FerrousFocusResult
 
         let window_title = get_window_title_via_accessibility(pid)?;
 
-        let icon = if let Some(app) = running_app {
-            get_app_icon(&app, icon_config)?
-        } else {
-            None
-        };
-
         Ok(FocusedWindow {
             process_id: Some(pid as u32),
             window_title,
             process_name,
-            icon,
+            icon: None,
         })
+    })
+}
+
+/// Fetch icon for the given process ID
+pub fn fetch_icon_for_pid(
+    pid: i32,
+    icon_config: &IconConfig,
+) -> FerrousFocusResult<Option<image::RgbaImage>> {
+    autoreleasepool(|_pool| {
+        let running_app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid);
+        if let Some(app) = running_app {
+            get_app_icon(&app, icon_config)
+        } else {
+            Ok(None)
+        }
     })
 }
 

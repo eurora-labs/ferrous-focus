@@ -113,11 +113,18 @@ impl ImplFocusTracker {
                 break;
             }
 
-            // Get the current focused window information
-            match utils::get_frontmost_window_info(&config.icon) {
-                Ok(window) => {
-                    // Only report focus events when the application or title changes
+            // Get basic window info first (without icon - fast)
+            match utils::get_frontmost_window_basic_info() {
+                Ok(mut window) => {
+                    // Only fetch icon and report when focus actually changed
                     if prev_state.has_changed(&window) {
+                        // Fetch icon only when focus changed (expensive operation)
+                        if let Some(pid) = window.process_id {
+                            match utils::fetch_icon_for_pid(pid as i32, &config.icon) {
+                                Ok(icon) => window.icon = icon,
+                                Err(e) => debug!("Error fetching icon: {}", e),
+                            }
+                        }
                         prev_state.update_from(&window);
                         on_focus(window).await?;
                     }
@@ -151,11 +158,18 @@ impl ImplFocusTracker {
                 break;
             }
 
-            // Get the current focused window information
-            match utils::get_frontmost_window_info(&config.icon) {
-                Ok(window) => {
-                    // Only report focus events when the application or title changes
+            // Get basic window info first (without icon - fast)
+            match utils::get_frontmost_window_basic_info() {
+                Ok(mut window) => {
+                    // Only fetch icon and report when focus actually changed
                     if prev_state.has_changed(&window) {
+                        // Fetch icon only when focus changed (expensive operation)
+                        if let Some(pid) = window.process_id {
+                            match utils::fetch_icon_for_pid(pid as i32, &config.icon) {
+                                Ok(icon) => window.icon = icon,
+                                Err(e) => debug!("Error fetching icon: {}", e),
+                            }
+                        }
                         prev_state.update_from(&window);
                         on_focus(window)?;
                     }
